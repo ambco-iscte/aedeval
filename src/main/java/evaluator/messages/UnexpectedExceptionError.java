@@ -2,6 +2,7 @@ package evaluator.messages;
 
 import evaluator.Tester;
 import evaluator.annotations.Test;
+import extensions.Extensions;
 
 import java.util.Arrays;
 
@@ -13,18 +14,20 @@ public class UnexpectedExceptionError extends Result {
 
     private final Throwable exception;
 
-    private final boolean expectOneOf;
+    private final MethodInvocationResult.EqualsType equalsType;
 
-    public UnexpectedExceptionError(Test test, Tester.MethodCall call, Object expected, Throwable exception, boolean expectOneOf) {
+    public UnexpectedExceptionError(Test test, Tester.MethodCall call, Object expected, Throwable exception, MethodInvocationResult.EqualsType equalsType) {
         super(test);
 
-        if (expectOneOf && !(expected instanceof Object[]))
-            throw new IllegalArgumentException("Can only expect 'one of' for expected Object arrays!");
+        if (equalsType == MethodInvocationResult.EqualsType.CONTENT || equalsType == MethodInvocationResult.EqualsType.PERMUTATION || equalsType == MethodInvocationResult.EqualsType.ANY) {
+            if (expected != null && !expected.getClass().isArray() && !Iterable.class.isAssignableFrom(expected.getClass()))
+                throw new IllegalArgumentException("Expected value should be an array or Iterable collection of elements, but is " + expected.getClass() + "!");
+        }
 
         this.call = call;
         this.expected = expected;
         this.exception = exception;
-        this.expectOneOf = expectOneOf;
+        this.equalsType = equalsType;
     }
 
     @Override
@@ -51,12 +54,15 @@ public class UnexpectedExceptionError extends Result {
 
     @Override
     public String getMessage() {
-        if (expectOneOf)
-            return call + " returned wrong result: " +
-                    "Expected one of " + Arrays.toString((Object[]) expected) + " but threw " + exception.getClass().getSimpleName() + " " +
-                    "with message \"" + exception.getMessage() + "\"";
+        String expectedMessage = switch (equalsType) {
+            case EXACT -> "Expected <" + Extensions.toStringOrDefault(expected) + ">";
+            case ANY -> "Expected one of " + Extensions.toStringOrDefault(expected);
+            case PERMUTATION -> "Expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
+            case CONTENT -> "Expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
+        };
+
         return call + " returned wrong result: " +
-                "Expected <" + expected + "> but threw " + exception.getClass().getSimpleName() + " " +
+                expectedMessage + " but threw " + exception.getClass().getSimpleName() + " " +
                 "with message \"" + exception.getMessage() + "\"";
     }
 }

@@ -11,9 +11,10 @@
 
 **Java Library for Mass Testing and Analysis of Java Source Code Files**
 
-[Installation](#installation) •
-[How to Use](#how-to-use) •
-[Worked Example](#worked-example)
+[Introduction](#-introduction) •
+[How to Use](#-how-to-use) •
+[How are Assignments Graded?](#-how-does-aedeval-grade-assignments) •
+[Worked Example](#-worked-example)
 
 </div>
 
@@ -234,7 +235,7 @@ System.out.println(d1.daysBetween(d2));
 
 The rationale for defining test cases might go something like this: we should test calling the functions between several dates to match variations of the three parameters (month, day, and year).
 
-Firstly, since we're working with Java reflection, it might be useful to define a helper method to create instances of our Date class:
+Firstly, since we're working with Java reflection, it might be useful to define a helper method to create instances of our Date class.
 ```java
 private ObjectInstantiation tryCreateDate(int month, int day, int year) throws Exception {
     Class<?>[] parameterTypes = {int.class, int.class, int.class}; // Constructor parameter types
@@ -270,7 +271,7 @@ invoke(before, d3, d3).assertEquals(false); // assert d3.before(d3) == false
 ```
 The `invoke` function takes a `Method`, then the calling object, and finally a sequence of arguments. A static method (no calling object) might look like `invoke(foo, null, arg1, arg2, ...).`
 
-All together, the test case might look like this:
+All together, the test case might look like this: 👇
 
 ```java
 @Require({"Date.java"})
@@ -294,7 +295,7 @@ What's at play:
 2. The `@Test` annotation, which defines a method as an assignment test case with a description and a weight;
 3. The `throws Exception` is needed in case of assertion failures.
 
-With this in mind, consider the following test case for the `daysBetween` function:
+With this in mind, consider the following test case for the `daysBetween` function: 👇
 ```java
 @Require({"Date.java"})
 @Test(description = "daysBetween", weight = 5)
@@ -347,12 +348,12 @@ The number of threads to use is somewhat arbitrary; 20 threads is just something
 my machine. You can try using more or less depending on your application. Too few threads and a lot of submissions to 
 evaluate might make the evaluation take a while!
 
-Finally, to save the report as a neat Excel table, you can do:
+Finally, to save the report as a neat Excel table, you can do: 👇
 ```java
 XLSXReportWriter.write(
     report,                 // Report to be written.
     "Submission1Report",    // File name without extension. 
-    5                       // 5 or more students will get flagged for plagiarism.
+    5                       // Groups of 5 or more students with 100% code similarity get flagged for plagiarism.
 );
 ```
 

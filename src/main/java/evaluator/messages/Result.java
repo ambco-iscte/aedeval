@@ -2,9 +2,12 @@ package evaluator.messages;
 
 import evaluator.annotations.Test;
 
+import java.util.Objects;
+
 public abstract class Result {
 
-    public static String FAILURE_ERROR_CODE = "Assertion Failed";
+    private final static String FAILURE_ERROR_CODE = "Assertion Failed";
+    private final static String SUCCESS_ERROR_CODE = "Success";
 
     private final Test test;
 
@@ -30,7 +33,7 @@ public abstract class Result {
         return "[fail]" + getMessage();
     }
 
-    public static Result error(Test test, Throwable cause) {
+    public static Result exception(Test test, Throwable cause) {
         return new Result(test) {
             @Override
             public String errorCode() {
@@ -49,12 +52,20 @@ public abstract class Result {
         };
     }
 
+    public boolean isSuccess() {
+        return Objects.equals(errorCode(), SUCCESS_ERROR_CODE);
+    }
+
+    public boolean isFailure() {
+        return Objects.equals(errorCode(), FAILURE_ERROR_CODE);
+    }
+
     public static Result success(Test test, String message) {
         return new Result(test) {
 
             @Override
             public String errorCode() {
-                return "Success";
+                return SUCCESS_ERROR_CODE;
             }
 
             @Override

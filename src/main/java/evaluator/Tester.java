@@ -1,6 +1,5 @@
 package evaluator;
 
-import com.google.common.collect.Iterables;
 import evaluator.annotations.*;
 import evaluator.messages.*;
 import extensions.Extensions;
@@ -22,8 +21,6 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-
-import static evaluator.messages.Result.FAILURE_ERROR_CODE;
 
 /**
  * Abstract class used to test a student's submission. Automatically loads .java files, compiles them, and runs the
@@ -253,7 +250,7 @@ public class Tester extends Reflector {
 		public Object assertEquals(Object expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.ExpectedType.EXACT);
+				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
 				log(res);
 				if (!res.passed())
 					fail();
@@ -261,16 +258,34 @@ public class Tester extends Reflector {
 				log(new MethodTimeoutError(currentTest, this));
 				fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, false));
+				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
 				fail();
 			}
 			return expected;
 		}
 
+        @SuppressWarnings("unchecked")
+        public <T, I extends Iterable<T>> I assertContentEquals(T[] expected) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
+                log(res);
+                if (!res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(currentTest, this));
+                fail();
+            } else if (threwException()) {
+                log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
+                fail();
+            }
+            return (I) Arrays.asList(expected);
+        }
+
 		public Object assertEqualsAny(Object... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.ExpectedType.ANY);
+				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.ANY);
 				log(res);
 				if (!res.passed())
 					fail();
@@ -278,7 +293,7 @@ public class Tester extends Reflector {
 				log(new MethodTimeoutError(currentTest, this));
 				fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, true));
+				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
 				fail();
 			}
 			return expected[0];
@@ -287,7 +302,7 @@ public class Tester extends Reflector {
 		public <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.ExpectedType.PERMUTATION);
+				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
 				log(res);
 				if (!res.passed())
 					fail();
@@ -295,7 +310,7 @@ public class Tester extends Reflector {
 				log(new MethodTimeoutError(currentTest, this));
 				fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, true));
+				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
 				fail();
 			}
 			return expected;
@@ -381,7 +396,7 @@ public class Tester extends Reflector {
 			log(new ConstructorNotImplementedError(currentTest, type, parameterTypes));
 			fail();
 		} catch (SecurityException e) {
-			log(Result.error(currentTest, e));
+			log(Result.exception(currentTest, e));
 			fail();
 		}
 		return null;
@@ -531,7 +546,7 @@ public class Tester extends Reflector {
 					log(new ReferencedClassNotFoundError(currentTest, ex));
 				else if (!(target instanceof ManualFailureException))  {
 					target.printStackTrace();
-					log(Result.error(currentTest, target));
+					log(Result.exception(currentTest, target));
 				}
 			} catch (Throwable e) {
 				e.printStackTrace();
@@ -619,7 +634,7 @@ public class Tester extends Reflector {
 			int correct = Extensions.countIf(res, Result::passed);
 			int total = res.size();
 			if (total > 0) {
-				if (correct == 0 || res.stream().anyMatch(it -> it.errorCode().equals(FAILURE_ERROR_CODE)))
+				if (correct == 0 || res.stream().anyMatch(Result::isFailure))
 					grade = Math.max(0.0, grade - test.penalty());
 				else grade += ((double) correct / total) * test.weight();
 			}

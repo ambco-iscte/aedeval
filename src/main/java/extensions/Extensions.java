@@ -150,6 +150,8 @@ public class Extensions {
 
     @SuppressWarnings("unchecked")
     public static <T> T[] toArray(Iterable<T> iterable) {
+        if (iterable == null)
+            return null;
         List<T> list = new LinkedList<>();
         for (T item : iterable)
             list.add(item);
@@ -157,6 +159,8 @@ public class Extensions {
     }
 
     public static <T> boolean match(Iterable<T> a, Iterable<T> b) {
+        if (a == null || b == null)
+            return false;
         return Arrays.equals(toArray(a), toArray(b));
     }
 
@@ -244,6 +248,10 @@ public class Extensions {
             return (Object[]) o;
 
         throw new IllegalArgumentException("Cannot convert object of type " + o.getClass() + " to an array!");
+    }
+
+    public static HashSet<Object> toSet(Object o) {
+        return new HashSet<>(Arrays.asList(toArray(o)));
     }
 
     public static String toStringOrDefault(Object o) {

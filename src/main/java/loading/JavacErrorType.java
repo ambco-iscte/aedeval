@@ -465,9 +465,7 @@ public enum JavacErrorType {
             throw new IllegalArgumentException("Compilation error code cannot be null!");
         for (JavacErrorType type : values()) {
             for (String t : type.codes) {
-                if (t.equals(code))
-                    return type;
-                else if (code.startsWith("compiler.err.") && t.equals(code.substring(13)))
+                if (t.equals(code) || (code.startsWith("compiler.err.") && t.equals(code.substring(13))))
                     return type;
             }
         }

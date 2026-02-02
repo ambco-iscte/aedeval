@@ -19,7 +19,11 @@ public class Reflector {
 
     private static final long TIMEOUT_MILLISECONDS = 5000;
 
-    private static class None {  }
+    protected static class None {
+        private None() throws IllegalAccessException {
+            throw new IllegalAccessException("No None instances for you!");
+        }
+    }
 
     protected static None NONE;
 
@@ -111,7 +115,7 @@ public class Reflector {
     /**
      * Is the specified class generic?
      * @param type The class.
-     * @return True if the class or any of its
+     * @return True if the class is generic or has at least one generic superclass.
      */
     protected boolean isGeneric(Class<?> type) {
         return type.getTypeParameters().length > 0 || hasGenericSuperclass(type);
@@ -208,7 +212,7 @@ public class Reflector {
      * @param name The field name.
      * @return The field, cast to its appropriate type. Essentially: T.cast({@link Reflector#getField}).
      * @throws NoSuchFieldException If no matching field is found.
-     * @throws IllegalAccessException If the found field cannot be accessed.
+     * @throws IllegalAccessException If the field cannot be accessed.
      */
     protected Object getProperty(Object object, String name) throws NoSuchFieldException, IllegalAccessException {
         Field field = getField(object.getClass(), name);

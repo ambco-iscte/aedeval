@@ -30,6 +30,6 @@ public class MethodNotImplementedError extends Result {
 
     @Override
     public String getMessage() {
-        return "Method not implemented: " + cause.getMessage() + ". If you implemented the method, you might've used a different name and/or parameter types.";
+        return "Method not implemented: " + cause.getMessage() + ". Are you sure you used the correct name and parameter types?";
     }
 }

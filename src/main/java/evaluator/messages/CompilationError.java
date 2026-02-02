@@ -15,8 +15,8 @@ public class CompilationError extends Result {
     private final File source;
     private final CompilationException cause;
 
-    private static final String GENERIC_ARRAY_CREATION_MESSAGE = "Remember that, in Java, generic arrays need to be " +
-            "created as Object[] and then \"ugly cast\" to the generic array you want.";
+    private static final String GENERIC_ARRAY_CREATION_MESSAGE = "Remember: in Java, generic arrays need to be " +
+            "created as Object[] and then \"ugly cast\" to the generic array type you want!";
 
     public CompilationError(Test test, File source, CompilationException cause) {
         super(test);

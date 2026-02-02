@@ -1,7 +1,5 @@
 package aed;
 
-import aed.testers.TestSubmission1;
-import de.jplag.JPlag;
 import de.jplag.JPlagResult;
 import de.jplag.reporting.reportobject.ReportObjectFactory;
 import evaluator.Report;
@@ -9,7 +7,6 @@ import evaluator.Submission;
 import evaluator.Tester;
 import evaluator.FullEvaluator;
 import extensions.Console;
-import org.slf4j.LoggerFactory;
 import report.XLSXReportWriter;
 
 import java.io.File;
