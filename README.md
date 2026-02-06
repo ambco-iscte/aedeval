@@ -368,7 +368,14 @@ There will also be a second sheet containing some general statistics about the s
 
 <br>
 
-## ✉️ Contact
+## ✉️ Attribution and Licensing
 
-This project is currently owned, developed, and maintained by [Afonso Caniço](https://ciencia.iscte-iul.pt/authors/afonso-canico/cv). 
+**Copyright © 2026 [Afonso B. Caniço](https://ciencia.iscte-iul.pt/authors/afonso-canico/cv)**
+
+**AED**eval is currently owned, developed, and maintained by [Afonso B. Caniço](https://ciencia.iscte-iul.pt/authors/afonso-canico/cv). 
 Feel free to reach out if you have any questions! Also, pull requests are absolutely fine if you'd like to contribute to the project. :)
+
+**AED**eval is licensed under the [GNU General Public License, Version 3](https://www.gnu.org/licenses/gpl-3.0.en.html#license-text).
+
+
+

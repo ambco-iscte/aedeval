@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>pt.iscte.aed</groupId>
     <artifactId>aedstudentevaluator</artifactId>
-    <version>0.9.12</version>
+    <version>0.10.0</version>
     <packaging>jar</packaging>
 
     <name>AEDStudentEvaluator</name>
@@ -10,8 +10,8 @@
     <url>https://github.com/ambco-iscte/aedeval</url>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
     </properties>
 
     <build>
@@ -80,7 +80,7 @@
         <dependency>
             <groupId>com.github.javaparser</groupId>
             <artifactId>javaparser-symbol-solver-core</artifactId>
-            <version>3.26.2</version>
+            <version>3.28.0</version>
         </dependency>
         <!-- https://github.com/jplag/JPlag -->
         <dependency>

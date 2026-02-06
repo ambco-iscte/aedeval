@@ -62,7 +62,6 @@ public class UnusedImportFinder extends ModifierVisitor<Void> {
 
     @Override
     public Visitable visit(TypeExpr n, Void arg) {
-        System.out.println("Visited type expr: " + n.getTypeAsString());
         ImportDeclaration match = find(n.getTypeAsString());
         if (match != null)
             used.add(match);

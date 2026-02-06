@@ -76,7 +76,7 @@ public class ClassLoader {
         // Clean source code using JavaParser :)
         try {
             Source.clean(javaFile);
-        } catch (Exception ignored) { }
+        } catch (FileNotFoundException ignored) { }
 
         // Creates a Java compiler
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();

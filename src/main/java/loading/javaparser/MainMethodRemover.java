@@ -13,7 +13,7 @@ public class MainMethodRemover extends ModifierVisitor<Void> {
 
     @Override
     public Visitable visit(MethodDeclaration n, Void arg) {
-        if (n != null && Source.isMainMethod(n)) {
+        if (n != null && (Source.isMainMethod(n) || Source.isInstanceMainMethod(n))) {
             n.remove();
         }
         return super.visit(n, arg);
