@@ -6,13 +6,14 @@ import extensions.Extensions;
 import extensions.Files;
 import extensions.Levenshtein;
 import loading.ClassLoader;
-import loading.ClassLoadingException;
-import loading.CompilationException;
+import loading.exceptions.ClassLoadingException;
+import loading.exceptions.CompilationException;
 import reflection.Reflector;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InaccessibleObjectException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
@@ -36,10 +37,10 @@ import java.util.concurrent.TimeoutException;
  * @author Afonso Caniço
  *
  */
+@SuppressWarnings("UnusedReturnValue")
 public class Tester extends Reflector {
 
 	public static class ManualFailureException extends Exception {
-
 		public ManualFailureException(String message) {
 			super(message);
 		}
@@ -53,7 +54,6 @@ public class Tester extends Reflector {
 	public class ObjectInstantiation {
 
 		private final Constructor<?> constructor;
-
 		private final Object[] initArgs;
 
 		public ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
@@ -113,13 +113,9 @@ public class Tester extends Reflector {
 	public class MethodCall {
 
 		private final Method method;
-
 		private final Object caller;
-
 		private final Object[] arguments;
-
 		private Object result = NONE;
-
 		private Throwable exception = null;
 
 		public MethodCall(Method method, Object caller, Object[] arguments) {
@@ -299,7 +295,8 @@ public class Tester extends Reflector {
 			return expected[0];
 		}
 
-		public <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
+		@SafeVarargs
+        public final <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
@@ -345,13 +342,26 @@ public class Tester extends Reflector {
 
 	private final Submission submission;
 
+    private final String[] allowedPackages;
+
 	/**
 	 * Creates an instance of a tester for a directory containing Java source code files.
 	 * @param submission Submission to be tested.
+     * @param allowedPackages Names of allowed packages.
 	 */
-	public Tester(Submission submission) {
+	public Tester(Submission submission, String[] allowedPackages) {
 		this.submission = submission;
+        this.allowedPackages = allowedPackages;
 	}
+
+    /**
+     * Creates an instance of a tester for a directory containing Java source code files.
+     * @param submission Submission to be tested.
+     */
+    public Tester(Submission submission) {
+        this.submission = submission;
+        this.allowedPackages = null;
+    }
 
 	public static Set<String> getAllRequiredFiles(Class<? extends Tester> type) {
 		Set<String> files = new HashSet<>();
@@ -388,14 +398,13 @@ public class Tester extends Reflector {
 		try {
 			if (type == null)
 				fail();
-            assert type != null;
-            Constructor<?> constructor = type.getDeclaredConstructor(parameterTypes);
+            Constructor<?> constructor = Objects.requireNonNull(type).getDeclaredConstructor(parameterTypes);
 			constructor.setAccessible(true); // Access private constructors through Reflection magic
 			return new ObjectInstantiation(constructor, initArgs);
 		} catch (NoSuchMethodException e) {
 			log(new ConstructorNotImplementedError(currentTest, type, parameterTypes));
 			fail();
-		} catch (SecurityException e) {
+		} catch (InaccessibleObjectException | SecurityException e) {
 			log(Result.exception(currentTest, e));
 			fail();
 		}
@@ -412,9 +421,9 @@ public class Tester extends Reflector {
 		javaFile = fileNames.getOrDefault(javaFile, javaFile);
 
 		if (!invalidClassNames.contains(javaFile) && !compiledTypes.containsKey(javaFile)) {
-			File source = Files.findClosestDescendant(submission.getDirectory(), javaFile);
+			File source = Files.findClosestDescendantCopyInsensitive(submission.getDirectory(), javaFile);
 
-			if (source == null || !source.exists()) {
+			if (source == null) {
 				invalidClassNames.add(javaFile);
 				log(new MissingFileError(null, submission.getDirectory(), javaFile));
 				return null;
@@ -427,7 +436,7 @@ public class Tester extends Reflector {
 			}
 
 			try {
-				Class<?> loaded = ClassLoader.load(source, true);
+				Class<?> loaded = ClassLoader.load(source, allowedPackages, true);
 				if (loaded == null) {
 					invalidClassNames.add(javaFile);
 					return null;
@@ -456,7 +465,7 @@ public class Tester extends Reflector {
 	protected Method findMethod(Class<?> type, String name, Class<?>... parameterTypes) throws NoSuchMethodException {
 		Levenshtein lev = new Levenshtein();
 		for (Method method : type.getDeclaredMethods()) {
-			boolean nameIsSimilar = method.getName().equals(name) || lev.similar(method.getName(), name, 0.2);
+			boolean nameIsSimilar = method.getName().equals(name) || lev.similarity(method.getName(), name) >= 0.8;
 			if (Arrays.equals(method.getParameterTypes(), parameterTypes) && nameIsSimilar) {
 				if (!method.getName().equals(name)) {
 					//System.err.println("[" + submission.getName() + "] Could not find method " + type.getSimpleName() + "." + name + ", but found close viable match: " + method.getName());

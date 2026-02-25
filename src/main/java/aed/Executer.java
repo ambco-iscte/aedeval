@@ -18,10 +18,17 @@ import java.util.*;
 public class Executer {
 
 	private static final int THREADS = 20;
-	private static final int SUBMISSION = 10; // Submission Number.
+	private static final int SUBMISSION = 1; // Submission Number.
 	private static final int PLAGIARISM_CLUSTER_MINIMUM_SIZE = 5; // This many students (or more) to warn of plagiarism.
 	private static final String ROOT = System.getProperty("user.dir") + File.separator + "submissions";
 	private static final String PARENT = ROOT + File.separator + "submission" + SUBMISSION;
+
+    private static final String[] ALLOWED_PACKAGES = {
+        "java.util",
+        "java.lang",
+        "java.math",
+        "java.text"
+    };
 
 	static {
 		try {
@@ -45,15 +52,16 @@ public class Executer {
 		throw new ClassNotFoundException("Could not find tester class: aed.testers.TestSubmission" + SUBMISSION);
 	}
 
-	public static void main(String[] args) throws Exception {
+	static void main() throws Exception {
 		if (Files.exists(Path.of("reports", "Report - Submission " + SUBMISSION + ".xlsx")))
 			Console.warning("A report file already exists for submission " + SUBMISSION + ". " +
 					"Are you sure this is the submission you want to evaluate?" + System.lineSeparator());
 
 		Report report = new FullEvaluator<>(
-				PARENT, 								// Folder containing student submissions.
-				"Submission " + SUBMISSION, 			// Description.
-				getTester()								// Tester class.
+            PARENT, 								// Folder containing student submissions.
+            "Submission " + SUBMISSION, 			// Description.
+            getTester(),						    // Tester class.
+            ALLOWED_PACKAGES                        // Java packages the students are allowed to use.
 		).run(THREADS);
 		System.out.println();
 

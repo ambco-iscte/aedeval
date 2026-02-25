@@ -1,7 +1,10 @@
 package loading;
 
 import extensions.Console;
+import extensions.Extensions;
 import extensions.Files;
+import loading.exceptions.ClassLoadingException;
+import loading.exceptions.CompilationException;
 import org.apache.commons.io.FilenameUtils;
 
 import javax.tools.*;
@@ -47,7 +50,7 @@ public class ClassLoader {
      * @param className The class name.
      * @return The compiled .class file.
      */
-    private static File compile(File directory, String className, List<String> options) throws FileNotFoundException, CompilationException {
+    private static File compile(File directory, String className, List<String> options, String[] allowedPackages) throws FileNotFoundException, CompilationException {
         File javaFile = Files.findDescendant(directory, className);
         if (javaFile == null) {
             System.err.println("File not found: " + directory.getPath() + "/" + className);
@@ -65,18 +68,12 @@ public class ClassLoader {
         }
 
         // Cleanup file name
-        String name = FilenameUtils.getBaseName(javaFile.getName()).trim();
-        name = name.replaceAll("\\([0-9]+\\)$", "").trim(); // Remove e.g. (1) for file copies.
-        name = name + "." + FilenameUtils.getExtension(javaFile.getName());
-
-        Path path = Path.of(directory.getPath(), name);
-        if (javaFile.renameTo(path.toFile()))
-            javaFile = path.toFile();
+        javaFile = Files.removeCopyIndicesFromFile(javaFile, true);
 
         // Clean source code using JavaParser :)
         try {
-            Source.clean(javaFile);
-        } catch (FileNotFoundException ignored) { }
+            Source.clean(javaFile, allowedPackages);
+        } catch (Exception ignored) { }
 
         // Creates a Java compiler
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
@@ -138,7 +135,7 @@ public class ClassLoader {
      * @throws CompilationException If the source file fails to compile.
      * @throws ClassLoadingException If the compiled class failed to load.
      */
-    public static Class<?> load(File javaFile, boolean backup) throws IOException, ClassLoadingException, CompilationException {
+    public static Class<?> load(File javaFile, String[] allowedPackages, boolean backup) throws IOException, ClassLoadingException, CompilationException {
         File dir = javaFile.getParentFile();
 
         if (backup) {
@@ -146,7 +143,7 @@ public class ClassLoader {
             java.nio.file.Files.copy(javaFile.toPath(), backupFile, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        File compiled = compile(dir, javaFile.getName(), List.of("-classpath", dir.getPath()));
+        File compiled = compile(dir, javaFile.getName(), List.of("-classpath", dir.getPath()), allowedPackages);
         try {
             // Create a ClassLoader instance for the directory the .java file is stored in
             URL[] classURLs = new URL[] { dir.toURI().toURL() };

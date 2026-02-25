@@ -64,8 +64,8 @@ public class Levenshtein {
         return substitution;
     }
 
-    public boolean similar(String x, String y, double ratio) {
-        return distance(x, y) <= Math.round(ratio * Math.max(x.length(), y.length()));
+    public double similarity(String x, String y) {
+        return 1 - distance(x, y) / Math.max(x.length(), y.length());
     }
 
     /**

@@ -13,6 +13,14 @@ import java.util.function.Predicate;
 
 public class Extensions {
 
+    public static <T> boolean contains(T[] array, T element) {
+        for (T item : array) {
+            if (Objects.equals(item, element))
+                return true;
+        }
+        return false;
+    }
+
     public static <T extends Comparable<? super T>> boolean isSorted(Iterable<T> iterable) {
         Iterator<T> iterator = iterable.iterator();
 

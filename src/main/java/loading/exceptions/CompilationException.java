@@ -1,4 +1,4 @@
-package loading;
+package loading.exceptions;
 
 import extensions.Extensions;
 
@@ -12,7 +12,7 @@ public class CompilationException extends Exception {
     private final List<Diagnostic<? extends JavaFileObject>> diagnostics;
 
     public CompilationException(List<Diagnostic<? extends JavaFileObject>> diagnostics) {
-        super(Extensions.joinToString("; ", diagnostics,
+        super(Extensions.joinToString("\n", diagnostics,
                 d -> "Error at line " + d.getLineNumber() + ": " + d.getMessage(null)
         ));
         this.diagnostics = diagnostics;

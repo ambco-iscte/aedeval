@@ -1,16 +1,22 @@
 package loading;
 
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.PackageDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.visitor.Visitable;
+import com.github.javaparser.resolution.SymbolResolver;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import extensions.Console;
+import loading.exceptions.UnsupportedJavaFeatureException;
 import loading.javaparser.*;
 
 import java.io.File;
@@ -18,44 +24,35 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
-public class Source {
+public final class Source {
 
     private static final ParserConfiguration.LanguageLevel JAVA_VERSION = ParserConfiguration.LanguageLevel.JAVA_25;
 
-    static {
+    private static void INIT() {
         StaticJavaParser.getParserConfiguration().setLanguageLevel(JAVA_VERSION);
-        if (StaticJavaParser.getParserConfiguration().getSymbolResolver().isEmpty()) {
-            CombinedTypeSolver solver = new CombinedTypeSolver();
-            solver.add(new ReflectionTypeSolver());
-            StaticJavaParser.getParserConfiguration().setSymbolResolver(new JavaSymbolSolver(solver));
-        }
+        JavaSymbolSolver solver = new JavaSymbolSolver(new CombinedTypeSolver(new ReflectionTypeSolver()));
+        StaticJavaParser.getParserConfiguration().setSymbolResolver(solver);
+    }
+
+    static {
+        INIT();
+    }
+
+    public static Visitable removed(Node node) {
+        node.remove();
+        return null;
     }
 
     /**
-     * Is <code>n</code> the declaration of Java's main method?
+     * Is <code>n</code> the declaration of a compact main method?
      * @param n JavaParser method declaration.
-     * @return True if the declaration matches <code>public static void main()</code> or
-     * <code>public static void main(String[])</code>. False, otherwise.
      */
     public static boolean isMainMethod(MethodDeclaration n) {
-        return n.isPublic() &&
-               n.isStatic() &&
-               n.getTypeAsString().equals("void") &&
+        return n.getTypeAsString().equals("void") &&
                n.getNameAsString().equals("main") &&
                (n.getParameters().isEmpty() || (n.getParameters().size() == 1 && n.getParameters().get(0).getTypeAsString().equals("String[]")));
-    }
-
-    /**
-     * Is <code>n</code> the declaration of an instance main method?
-     * @param n JavaParser method declaration.
-     * @return True if the declaration matches <code>void main()</code>. False, otherwise.
-     */
-    public static boolean isInstanceMainMethod(MethodDeclaration n) {
-        return !n.isStatic() &&
-                n.getTypeAsString().equals("void") &&
-                n.getNameAsString().equals("main") &&
-                n.getParameters().isEmpty();
     }
 
     /**
@@ -66,7 +63,7 @@ public class Source {
      */
     private static boolean hasMainMethod(TypeDeclaration<?> type) {
         for (MethodDeclaration method : type.getMethods()) {
-            if (isMainMethod(method) || isInstanceMainMethod(method))
+            if (isMainMethod(method))
                 return true;
         }
         return false;
@@ -80,68 +77,68 @@ public class Source {
         return null;
     }
 
-    /**
-     * Processes a Java source code file by:
-     * <p>
-     * 1. Removing the main method, if present;
-     * <p>
-     * 2. Adding brackets to all control structures, if the body is a single expression;
-     * <p>
-     * 3. Removing any calls to methods in the System package.
-     * @param source Java source code file.
-     * @throws FileNotFoundException If the file does not exist.
-     */
-    @SuppressWarnings("UnusedReturnValue")
-    public static CompilationUnit clean(File source) throws UnsupportedJavaFeatureException, FileNotFoundException {
-        CompilationUnit unit = StaticJavaParser.parse(source);
-
-        // Java 25 Compact Files unsupported for now
-        for (TypeDeclaration<?> type : unit.getTypes()) {
-            if (type instanceof ClassOrInterfaceDeclaration klass && klass.isCompact())
-                throw new UnsupportedJavaFeatureException(unit, klass, "compact files", JAVA_VERSION);
+    public static CompilationUnit clean(CompilationUnit unit, String[] allowedPackages) {
+        // Configure Java Symbol Solver
+        if (StaticJavaParser.getParserConfiguration().getSymbolResolver().isPresent()) {
+            SymbolResolver resolver = StaticJavaParser.getParserConfiguration().getSymbolResolver().get();
+            if (resolver instanceof JavaSymbolSolver javaSymbolSolver)
+                javaSymbolSolver.inject(unit);
         }
 
-        for (Comment comment : unit.getAllComments())
-            comment.remove();
         unit.setLineComment(" [" + LocalDateTime.now() + "] Source code cleaned by AED Evaluator.");
 
         // Remove package declaration
-        unit.removePackageDeclaration();
+        PackageDeclaration pkg = unit.getPackageDeclaration().orElse(null);
+        unit = unit.removePackageDeclaration();
 
         // Remove main method
-        new MainMethodRemover().visit(unit, null);
-
-        // Remove unused imports
-        /*
-        UnusedImportFinder unused = new UnusedImportFinder();
-        unused.visit(unit, null);
-        for (ImportDeclaration it : unused.getUnusedImports()) {
-            System.out.println("Unused: " + it);
-        }
-        new ImportStatementRemover(unused.getUnusedImports()).visit(unit, null);
-         */
+        unit = (CompilationUnit) new MainMethodRemover().visit(unit, null);
 
         // Encapsulate control structure bodies
-        new ControlStructureBracketer().visit(unit, null);
+        // new ControlStructureBracketer().visit(unit, null);
 
-        // Remove System.exit calls
-        new SystemCallRemover().visit(unit, null);
+        // Remove System and IO calls
+        unit = (CompilationUnit) new SystemCallRemover().visit(unit, null);
 
-        try {
-            Files.writeString(source.toPath(), unit.toString());
-        } catch (IOException e) {
-            Console.error("Could not write cleaned code to file " + source.getPath() + ": " + e.getMessage());
+        // Prevent static classes (some students accidentally did this)
+        unit = (CompilationUnit) new ClassModifierRemover(Modifier.Keyword.STATIC).visit(unit, null);
+
+        // Remove usages of illegal packages
+        if (pkg == null) {
+            unit = (CompilationUnit) new IllegalExpressionRemover(allowedPackages).visit(unit, null);
+        } else if (allowedPackages == null) {
+            String[] allowed = { pkg.getNameAsString() };
+            unit = (CompilationUnit) new IllegalExpressionRemover(allowed).visit(unit, null);
+        } else {
+            String[] allowed = Arrays.copyOf(allowedPackages, allowedPackages.length + 1);
+            allowed[allowed.length - 1] = pkg.getNameAsString();
+            unit = (CompilationUnit) new IllegalExpressionRemover(allowed).visit(unit, null);
         }
 
         return unit;
     }
 
-    public static void main(String[] args) {
-        CompilationUnit unit = StaticJavaParser.parse("""
-                void main() {
-                    IO.println("Hello world!");
-                }
-        """);
-        System.out.println(unit.toString());
+    /**
+     * Processes a Java source code file by:
+     * <ul>
+     *     <li>Removing the main method, if present;</li>
+     *     <li>Adding brackets to all control structures, if the body is a single expression;</li>
+     *     <li>Removing any calls to methods in the System or IO classes.</li>
+     *     <li>Removing any usages of not-allowed packages.</li>
+     * </ul>
+     * @param source Java source code file.
+     * @param allowedPackages Names of allowed packages.
+     * @throws FileNotFoundException If the file does not exist.
+     */
+    @SuppressWarnings("UnusedReturnValue")
+    public static CompilationUnit clean(File source, String[] allowedPackages) throws FileNotFoundException, ParseProblemException, UnsupportedJavaFeatureException {
+        INIT();
+        CompilationUnit unit = clean(StaticJavaParser.parse(source), allowedPackages);
+        try {
+            Files.writeString(source.toPath(), unit.toString());
+        } catch (IOException e) {
+            Console.error("Could not write cleaned code to file " + source.getPath() + ": " + e.getMessage());
+        }
+        return unit;
     }
 }

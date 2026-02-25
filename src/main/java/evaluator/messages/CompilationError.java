@@ -1,7 +1,7 @@
 package evaluator.messages;
 
 import evaluator.annotations.Test;
-import loading.CompilationException;
+import loading.exceptions.CompilationException;
 import loading.JavacErrorType;
 
 import javax.tools.Diagnostic;
@@ -60,9 +60,9 @@ public class CompilationError extends Result {
 
     @Override
     public String getMessage() {
-        String message = String.format("Could not compile file %s: %s", source.getName(), cause.getMessage().replace(source.getAbsolutePath(), source.getName()));
+        String message = String.format("Could not compile file %s:\n\t%s", source.getName(), cause.getMessage().replace(source.getAbsolutePath(), source.getName()));
         if (isGenericArrayCreation())
-            message += String.format(". %s", GENERIC_ARRAY_CREATION_MESSAGE);
+            message += String.format("\n%s", GENERIC_ARRAY_CREATION_MESSAGE);
         return message;
     }
 }

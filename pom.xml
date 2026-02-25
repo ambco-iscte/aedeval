@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>pt.iscte.aed</groupId>
     <artifactId>aedstudentevaluator</artifactId>
-    <version>0.10.0</version>
+    <version>0.11.4</version>
     <packaging>jar</packaging>
 
     <name>AEDStudentEvaluator</name>
@@ -61,7 +61,7 @@
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi</artifactId>
-            <version>5.4.0</version>
+            <version>5.5.1</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.poi/poi-ooxml -->
         <dependency>
@@ -86,12 +86,12 @@
         <dependency>
             <groupId>de.jplag</groupId>
             <artifactId>jplag</artifactId>
-            <version>5.0.0</version>
+            <version>6.3.0</version>
         </dependency>
         <dependency>
             <groupId>de.jplag</groupId>
             <artifactId>java</artifactId>
-            <version>5.0.0</version>
+            <version>6.3.0</version>
         </dependency>
         <!--  Gson: Java to JSON conversion -->
         <dependency>
