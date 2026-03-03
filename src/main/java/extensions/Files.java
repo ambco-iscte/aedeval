@@ -61,12 +61,12 @@ public class Files {
         return null;
     }
 
-    public static File findClosestDescendantCopyInsensitive(File root, String name) {
+    public static File findClosestDescendantCopyInsensitive(File root, String name, boolean rename) {
         Levenshtein lev = new Levenshtein();
         for (File child : walk(root)) {
             if (!FilenameUtils.getExtension(child.getName()).equals(FilenameUtils.getExtension(name)))
                 continue;
-            File renamed = removeCopyIndicesFromFile(child, true);
+            File renamed = removeCopyIndicesFromFile(child, rename);
             boolean nameIsSimilar = renamed.getName().equals(name) || lev.similarity(renamed.getName(), name) >= 0.8;
             if (renamed.isFile() && nameIsSimilar)
                 return renamed;

@@ -11,69 +11,45 @@ import java.util.*;
 
 public class Report implements Iterable<Report.Entry>, Serializable {
 
-    public static class Entry {
-
-        private final Submission submission;
-
-        private final Map<Test, List<Result>> results;
-
-        private final double grade;
-
-        public Entry(Submission submission, Map<Test, List<Result>> results, double grade) {
-            this.submission = submission;
-            this.results = results;
-            this.grade = grade;
-        }
-
-        public Submission getSubmission() {
-            return submission;
-        }
-
-        public Map<Test, List<Result>> getResults() {
-            return results;
-        }
-
-        public double getGrade() {
-            return grade;
-        }
+    public record Entry(Submission submission, Map<Test, List<Result>> results, double grade) {
 
         public Map<String, Integer> getErrorCountPerCode() {
-            Map<String, Integer> map = new HashMap<>();
-            for (Test test : results.keySet()) {
-                for (Result result : results.get(test)) {
-                    if (!result.passed())
-                        map.put(result.errorCode(), map.getOrDefault(result.errorCode(), 0) + 1);
-                }
-            }
-            return map;
-        }
-
-        public Set<String> getErrorCodes() {
-            Set<String> set = new TreeSet<>();
-            for (Test test : results.keySet()) {
-                for (Result result : results.get(test)) {
-                    if (!result.passed())
-                        set.add(result.errorCode());
-                }
-            }
-            return set;
-        }
-
-        public List<String> getErrorMessages() {
-            List<String> list = new ArrayList<>();
-            for (Test test : results.keySet()) {
-                for (Result result : results.get(test)) {
-                    if (!result.passed()) {
-                        if (result.getTest() == null)
-                            list.add(result.getMessage());
-                        else
-                            list.add("[" + result.getTest().description() + "] " + result.getMessage());
+                Map<String, Integer> map = new HashMap<>();
+                for (Test test : results.keySet()) {
+                    for (Result result : results.get(test)) {
+                        if (!result.passed())
+                            map.put(result.errorCode(), map.getOrDefault(result.errorCode(), 0) + 1);
                     }
                 }
+                return map;
             }
-            return list;
+
+            public Set<String> getErrorCodes() {
+                Set<String> set = new TreeSet<>();
+                for (Test test : results.keySet()) {
+                    for (Result result : results.get(test)) {
+                        if (!result.passed())
+                            set.add(result.errorCode());
+                    }
+                }
+                return set;
+            }
+
+            public List<String> getErrorMessages() {
+                List<String> list = new ArrayList<>();
+                for (Test test : results.keySet()) {
+                    for (Result result : results.get(test)) {
+                        if (!result.passed()) {
+                            if (result.getTest() == null)
+                                list.add(result.getMessage());
+                            else
+                                list.add("[" + result.getTest().description() + "] " + result.getMessage());
+                        }
+                    }
+                }
+                return list;
+            }
         }
-    }
 
     private final String description;
 

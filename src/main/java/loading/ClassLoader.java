@@ -18,8 +18,6 @@ import java.util.List;
 
 public class ClassLoader {
 
-    public static final String BACKUP_FILE_EXTENSION = "backup";
-
     private static final java.util.List<URLClassLoader> loaders = new ArrayList<>();
 
     public static void flush() throws IOException {
@@ -53,19 +51,19 @@ public class ClassLoader {
     private static File compile(File directory, String className, List<String> options, String[] allowedPackages) throws FileNotFoundException, CompilationException {
         File javaFile = Files.findDescendant(directory, className);
         if (javaFile == null) {
-            System.err.println("File not found: " + directory.getPath() + "/" + className);
+            Console.error("File not found: " + directory.getPath() + "/" + className);
             throw new FileNotFoundException(className);
         }
 
+        String extension = FilenameUtils.getExtension(javaFile.getName());
         if (isCompiledJavaFile(javaFile)) {
-            String extension = FilenameUtils.getExtension(javaFile.getName());
-            if (extension.equals("java"))
-                throw new CompilationException("Cannot compile .class file " + javaFile.getName() + ". Did you submit a .class file renamed to .java?");
-            else if (extension.equals("class"))
+            if (extension.equals("class"))
                 throw new CompilationException("Cannot compile a .class file. You must submit your .java file!");
-            else
-                throw new CompilationException("Cannot compile file with unknown extension: " + extension + ". You must submit your .java file!");
+            if (!extension.equals("java"))
+                throw new CompilationException("Cannot compile .class file " + javaFile.getName() + ". Did you submit a ." + extension + " file renamed to .java?");
         }
+        if (!extension.equals("java"))
+            throw new CompilationException("Cannot compile file with unknown extension: " + extension + ". You must submit your .java file!");
 
         // Cleanup file name
         javaFile = Files.removeCopyIndicesFromFile(javaFile, true);
@@ -135,14 +133,8 @@ public class ClassLoader {
      * @throws CompilationException If the source file fails to compile.
      * @throws ClassLoadingException If the compiled class failed to load.
      */
-    public static Class<?> load(File javaFile, String[] allowedPackages, boolean backup) throws IOException, ClassLoadingException, CompilationException {
+    public static Class<?> load(File javaFile, String[] allowedPackages) throws IOException, ClassLoadingException, CompilationException {
         File dir = javaFile.getParentFile();
-
-        if (backup) {
-            Path backupFile = Path.of(dir.toString(), Files.getNameWithoutExtension(javaFile) + "." + BACKUP_FILE_EXTENSION);
-            java.nio.file.Files.copy(javaFile.toPath(), backupFile, StandardCopyOption.REPLACE_EXISTING);
-        }
-
         File compiled = compile(dir, javaFile.getName(), List.of("-classpath", dir.getPath()), allowedPackages);
         try {
             // Create a ClassLoader instance for the directory the .java file is stored in

@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>pt.iscte.aed</groupId>
     <artifactId>aedstudentevaluator</artifactId>
-    <version>0.11.4</version>
+    <version>0.11.7</version>
     <packaging>jar</packaging>
 
     <name>AEDStudentEvaluator</name>
@@ -99,6 +99,19 @@
             <artifactId>gson</artifactId>
             <version>2.11.0</version>
             <scope>compile</scope>
+        </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/org.slf4j/slf4j-nop -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>2.0.17</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.openai</groupId>
+            <artifactId>openai-java</artifactId>
+            <version>4.23.0</version>
         </dependency>
     </dependencies>
 </project>

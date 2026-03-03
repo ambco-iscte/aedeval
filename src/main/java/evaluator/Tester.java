@@ -2,10 +2,12 @@ package evaluator;
 
 import evaluator.annotations.*;
 import evaluator.messages.*;
+import extensions.Console;
 import extensions.Extensions;
 import extensions.Files;
 import extensions.Levenshtein;
 import loading.ClassLoader;
+import loading.SourceLookup;
 import loading.exceptions.ClassLoadingException;
 import loading.exceptions.CompilationException;
 import reflection.Reflector;
@@ -332,8 +334,6 @@ public class Tester extends Reflector {
 
 	private final Map<Test, List<Result>> results = new HashMap<>();
 
-	private final Map<String, String> fileNames = new HashMap<>();
-
 	private final Map<String, Class<?>> compiledTypes = new HashMap<>(); // Only compile class once, reuse if possible
 
 	private final List<String> invalidClassNames = new ArrayList<>(); // If an error is raised, don't try loading again
@@ -418,25 +418,29 @@ public class Tester extends Reflector {
 	 * @return The compiled class stored in the specified .java file.
 	 */
 	protected Class<?> getClass(String javaFile) {
-		javaFile = fileNames.getOrDefault(javaFile, javaFile);
+		if (!compiledTypes.containsKey(javaFile) && !invalidClassNames.contains(javaFile)) {
+            SourceLookup.Result match = SourceLookup.lookup(submission.getDirectory(), javaFile, 0.8);
 
-		if (!invalidClassNames.contains(javaFile) && !compiledTypes.containsKey(javaFile)) {
-			File source = Files.findClosestDescendantCopyInsensitive(submission.getDirectory(), javaFile);
-
-			if (source == null) {
+			if (match.get().isEmpty()) {
 				invalidClassNames.add(javaFile);
 				log(new MissingFileError(null, submission.getDirectory(), javaFile));
 				return null;
 			}
+            File source = match.get().get();
 
-			fileNames.putIfAbsent(javaFile, source.getName());
+			if (match instanceof SourceLookup.FoundWithSimilarName similar)
+				log(new IncorrectFileNameError(null, javaFile, similar.actual()));
+			else if (match instanceof SourceLookup.FoundWithFileAndClassNameMismatch mismatch)
+                log(new FileAndClassNameMismatchError(null, javaFile, mismatch.actual(), mismatch.clazz()));
 
-			if (!source.getName().equals(javaFile)) {
-				log(new IncorrectFileNameError(null, javaFile, source.getName()));
-			}
+            File fixed = Path.of(source.getParentFile().getPath(), javaFile).toFile();
+            if (!source.getName().equals(javaFile)) {
+                if (source.renameTo(fixed)) source = fixed;
+                else Console.warning("Failed to rename " + source.getPath() + ", which does not match " + javaFile);
+            }
 
 			try {
-				Class<?> loaded = ClassLoader.load(source, allowedPackages, true);
+				Class<?> loaded = ClassLoader.load(source, allowedPackages);
 				if (loaded == null) {
 					invalidClassNames.add(javaFile);
 					return null;
@@ -554,12 +558,9 @@ public class Tester extends Reflector {
 				else if (target instanceof NoClassDefFoundError ex)
 					log(new ReferencedClassNotFoundError(currentTest, ex));
 				else if (!(target instanceof ManualFailureException))  {
-					target.printStackTrace();
 					log(Result.exception(currentTest, target));
 				}
-			} catch (Throwable e) {
-				e.printStackTrace();
-			}
+			} catch (Throwable ignored) { }
 		}
 	}
 

@@ -3,28 +3,32 @@ package loading;
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.PackageDeclaration;
+import com.github.javaparser.ast.*;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
-import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
+import com.github.javaparser.ast.nodeTypes.modifiers.NodeWithPublicModifier;
 import com.github.javaparser.ast.visitor.Visitable;
 import com.github.javaparser.resolution.SymbolResolver;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import extensions.Console;
+import extensions.Levenshtein;
 import loading.exceptions.UnsupportedJavaFeatureException;
 import loading.javaparser.*;
+import org.apache.commons.io.FilenameUtils;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Objects;
+
+import static extensions.Extensions.tryOrElse;
 
 public final class Source {
 
@@ -32,7 +36,7 @@ public final class Source {
 
     private static void INIT() {
         StaticJavaParser.getParserConfiguration().setLanguageLevel(JAVA_VERSION);
-        JavaSymbolSolver solver = new JavaSymbolSolver(new CombinedTypeSolver(new ReflectionTypeSolver()));
+        JavaSymbolSolver solver = new JavaSymbolSolver(new ReflectionTypeSolver());
         StaticJavaParser.getParserConfiguration().setSymbolResolver(solver);
     }
 
@@ -69,14 +73,6 @@ public final class Source {
         return false;
     }
 
-    private static String getPrimaryTypeNameOrNull(CompilationUnit unit) {
-        for (TypeDeclaration<?> type : unit.getTypes()) {
-            if (type.isPublic() && hasMainMethod(type))
-                return type.getNameAsString();
-        }
-        return null;
-    }
-
     public static CompilationUnit clean(CompilationUnit unit, String[] allowedPackages) {
         // Configure Java Symbol Solver
         if (StaticJavaParser.getParserConfiguration().getSymbolResolver().isPresent()) {
@@ -100,8 +96,8 @@ public final class Source {
         // Remove System and IO calls
         unit = (CompilationUnit) new SystemCallRemover().visit(unit, null);
 
-        // Prevent static classes (some students accidentally did this)
-        unit = (CompilationUnit) new ClassModifierRemover(Modifier.Keyword.STATIC).visit(unit, null);
+        // Prevent static classes (some students accidentally do this)
+        // unit = (CompilationUnit) new ClassModifierRemover(Modifier.Keyword.STATIC).visit(unit, null);
 
         // Remove usages of illegal packages
         if (pkg == null) {

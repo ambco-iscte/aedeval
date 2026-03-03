@@ -10,14 +10,14 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xddf.usermodel.chart.*;
 import org.apache.poi.xssf.usermodel.*;
-import org.openxmlformats.schemas.drawingml.x2006.chart.CTCatAx;
 import org.openxmlformats.schemas.drawingml.x2006.chart.CTChartSpace;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 
-public class XLSXReportWriter {
+public abstract class XLSXReportWriter {
 
     private static final XSSFColor LIGHT_BLUE = new XSSFColor(new java.awt.Color(60, 113, 201), new DefaultIndexedColorMap());
 
@@ -152,11 +152,40 @@ public class XLSXReportWriter {
         plot(drawing, anchor3, "Failures per Method/Test: " + title, "Method or Test Case", "Total # of Failures in Test Case", sampleSize, correctness, ChartTypes.BAR, false);
     }
 
-    public static void write(Report report, String path, int plagiarismClusterMinimumSize) throws IOException {
+    /**
+     * Checks if a student's submission is plagiarised.
+     * @param report Evaluation report.
+     * @param entry Report entry for a student submission.
+     * @return True if the submission is to be considered plagiarised. False, otherwise.
+     */
+    protected abstract boolean isPlagiarised(Report report, Report.Entry entry);
+
+    /**
+     * XLSX report message for a given student submission.
+     * @param report Evaluation report.
+     * @param entry Report entry for a student submission.
+     * @return The message that should be shown on the report row for the given submission.
+     */
+    protected abstract Optional<String> getMessage(Report report, Report.Entry entry);
+
+    /**
+     * Returns a student ID from a student submission. Useful is submission and student IDs don't match, or you
+     * want to format student IDs differently.
+     * @param submission Student submission.
+     */
+    protected abstract Long getStudentIDFromSubmission(Submission submission);
+
+    /**
+     * Writes an evaluation report in XLSX format to a given file path.
+     * @param report Evaluation report.
+     * @param path Target file path (usually ending in ".xlsx").
+     * @throws IOException If an IO exception occurs when writing the target file.
+     */
+    public void write(Report report, Path path) throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet results = workbook.createSheet("Results");
             int rowCount = 0;
-            createRow(results, rowCount++, FontStyle.HEADER, "Submission ID", "Name", "Error Logs", "Grade");
+            createRow(results, rowCount++, FontStyle.HEADER, "Student ID", "Name", "Messages", "Grade");
             createRow(results, rowCount++, FontStyle.HEADER, "", "", "", "");
 
             Map<String, Integer> grades = new LinkedHashMap<>();
@@ -174,45 +203,24 @@ public class XLSXReportWriter {
                 }
 
                 // Collect count of errors per test
-                for (Map.Entry<Test, List<Result>> t : entry.getResults().entrySet()) {
+                for (Map.Entry<Test, List<Result>> t : entry.results().entrySet()) {
                     String description = t.getKey().description();
                     int errors = (int) t.getValue().stream().filter(result -> !result.passed()).count();
                     errorsPerTest.put(description, errorsPerTest.getOrDefault(description, 0) + errors);
                 }
 
                 // General submission information
-                Submission sub = entry.getSubmission();
+                Submission sub = entry.submission();
                 Object[] info;
 
-                if (report.hasPlagiarismAnalysis()) {
-                    Set<de.jplag.Submission> cluster = report.getPlagiarismCluster(entry);
-                    if (cluster == null || cluster.size() < plagiarismClusterMinimumSize) {
-                        info = new Object[] {
-                                sub.getID(),
-                                sub.getName(),
-                                Extensions.joinToString(System.lineSeparator(), entry.getErrorMessages()),
-                                entry.getGrade()
-                        };
-                        createRow(results, rowCount++, FontStyle.REGULAR, info);
-                    } else {
-                        String names = Extensions.joinToString(cluster, t -> t.getName().split("_")[0]);
-                        info = new Object[] {
-                                sub.getID(),
-                                sub.getName(),
-                                "Submission annulled due to 100% similarity between " + cluster.size() + " students: " + names,
-                                0.0
-                        };
-                        createRow(results, rowCount++, FontStyle.WARNING, info);
-                    }
-                } else {
-                    info = new Object[] {
-                            sub.getID(),
-                            sub.getName(),
-                            Extensions.joinToString(System.lineSeparator(), entry.getErrorMessages()),
-                            entry.getGrade()
-                    };
-                    createRow(results, rowCount++, FontStyle.REGULAR, info);
-                }
+                boolean plagiarised = isPlagiarised(report, entry);
+                info = new Object[] {
+                    getStudentIDFromSubmission(sub).toString(),
+                    sub.getName(),
+                    getMessage(report, entry).orElse(""),
+                    plagiarised ? 0.0 : entry.grade()
+                };
+                createRow(results, rowCount++, plagiarised ? FontStyle.WARNING : FontStyle.REGULAR, info);
 
                 String rounded = String.valueOf((int) Math.round((double) info[3]));
                 grades.put(rounded, grades.getOrDefault(rounded, 0) + 1);
@@ -230,13 +238,10 @@ public class XLSXReportWriter {
             buildDashboard(statistics, report.getDescription(), report.getEntries().size(), grades, errorsOfEachType, errorsPerTest);
 
             // Write to File
-            try (FileOutputStream outputStream = new FileOutputStream(path + ".xlsx")) {
+            try (FileOutputStream outputStream = new FileOutputStream(path.toFile())) {
                 workbook.write(outputStream);
-            } catch (IOException e) {
-                Console.error("Exception thrown when writing XLSX report: " + e.getMessage());
-                throw e;
             }
-            System.out.println("Report available at: " + path + ".xlsx");
+            System.out.println("Report available at: " + path);
         }
     }
 }

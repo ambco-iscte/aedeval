@@ -1,5 +1,3 @@
-<div align="center">
-
 <picture style="height:3rem">
   <source style="height:3rem" media="(prefers-color-scheme: dark)" srcset="resources/logo-iscte-white.png">
   <source style="height:3rem" media="(prefers-color-scheme: light)" srcset="resources/logo-iscte-black.png">
@@ -9,14 +7,17 @@
 
 # AED Automated Student Evaluator
 
-**Java Library for Mass Testing and Analysis of Java Source Code Files**
+**Java Library for Testing and Evaluation of Java Source Code Files**
+
+[![Java - JDK 25](https://img.shields.io/static/v1?label=Java&message=JDK+25&color=orange&logo=openjdk)](https://openjdk.org/projects/jdk/25/)
+[![Powered By - JavaParser](https://img.shields.io/static/v1?label=Powered+By&message=JavaParser&color=indigo&logo=java)](https://javaparser.org/)
+[![Powered By - JPlag](https://img.shields.io/static/v1?label=Powered+By&message=JPlag&color=7f0f18)](https://jplag.de/)
+[![license - GNU GPLv3](https://img.shields.io/static/v1?label=License&message=GNU+GPLv3&color=a32d2a&logo=gnu)](https://www.gnu.org/licenses/gpl-3.0.en.html#license-text)
 
 [Introduction](#-introduction) •
 [How to Use](#-how-to-use) •
 [How are Assignments Graded?](#-how-does-aedeval-grade-assignments) •
 [Worked Example](#-worked-example)
-
-</div>
 
 <br>
 
@@ -31,8 +32,8 @@ _en masse_ for a large number of Java assignment submissions.
 The library was developed with efficiency, security, and reasonable robustness in mind:
 - The usage of Java's multithreading functionalities allows for a large number of submissions to be quickly evaluated in parallel;
 - Test cases can be based on output assertions, execution time measurement, source code analysis, or a combination of each type of assessment;
-- [JavaParser](https://javaparser.org/) is used to "clean" students' source code to remove `main` methods and `System` calls to prevent potentially damaging calls to the host system;
-- [JPlag](https://github.com/jplag/JPlag) is used to automatically detect instances of plagiarism between submissions.
+- [JavaParser](https://javaparser.org/) is used to "clean" students' source code to remove IO calls and (optionally) specific Java language features;
+- [JPlag](https://github.com/jplag/JPlag) is used to automatically detect plagiarism between student submissions.
 
 <br>
 
@@ -350,10 +351,9 @@ evaluate might make the evaluation take a while!
 
 Finally, to save the report as a neat Excel table, you can do: 👇
 ```java
-XLSXReportWriter.write(
-    report,                 // Report to be written.
-    "Submission1Report",    // File name without extension. 
-    5                       // Groups of 5 or more students with 100% code similarity get flagged for plagiarism.
+StaticXLSXReportWriter.write(
+    report,                             // Report to be written.
+    Path.of("Submission1Report.xlsx"),  // Target file path. 
 );
 ```
 

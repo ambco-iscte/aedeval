@@ -31,8 +31,8 @@ public class JSONReportWriter {
         @Override
         public JsonElement serialize(Report.Entry entry, Type type, JsonSerializationContext jsonSerializationContext) {
             JsonObject obj = new JsonObject();
-            obj.addProperty("name", entry.getSubmission().getName());
-            obj.addProperty("grade", entry.getGrade());
+            obj.addProperty("name", entry.submission().getName());
+            obj.addProperty("grade", entry.grade());
             return obj;
         }
     }

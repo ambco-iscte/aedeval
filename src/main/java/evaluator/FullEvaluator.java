@@ -3,6 +3,7 @@ package evaluator;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
@@ -25,6 +26,8 @@ import org.apache.commons.io.FilenameUtils;
 public class FullEvaluator<T extends Tester> {
 
 	private static final long SUBMISSION_TIMEOUT_MINUTES = 5L;
+
+    private static final String BACKUP_FILE_EXTENSION = "backup";
 
 	private ExecutorService THREAD_POOL;
 
@@ -63,8 +66,10 @@ public class FullEvaluator<T extends Tester> {
 
 	/**
 	 * Validates all files and evaluates all source code files present in the parent directory.
+     * Execution is asynchronous with a fixed number of threads.
+     * @param threads Number of parallel threads to use.
 	 */
-	public Report run(int threads) {
+	public Optional<Report> run(int threads) {
 		try {
 			// Set thread pool
 			THREAD_POOL = Executors.newFixedThreadPool(threads);
@@ -72,6 +77,9 @@ public class FullEvaluator<T extends Tester> {
 			// Validate Submitted Files
 			Map<File, Submission> submissions = validateSubmissions();
 			System.out.println();
+
+            // Backup Student Submission Files
+            backupSubmissionFiles(submissions);
 
 			Report report = new Report(description);
 
@@ -86,12 +94,20 @@ public class FullEvaluator<T extends Tester> {
 			// Restore Student Code Files from Backups
 			restoreSubmissionCodeFiles(submissions);
 
-			return report;
+			return Optional.of(report);
 		} catch (ExecutionException | InterruptedException | IOException e) {
-			Console.error("Exception thrown when running full evaluation: " + e.getMessage());
-			throw new RuntimeException(e);
+			Console.error(e.getClass().getCanonicalName() + " thrown when running full evaluation: " + e.getMessage());
+            return Optional.empty();
 		}
 	}
+
+    /**
+     * Validates all files and evaluates all source code files present in the parent directory.
+     * Execution is synchronous. This is equivalent to calling {@link #run(int)} with <code>threads = 1</code>.
+     */
+    public Optional<Report> run() {
+        return run(1);
+    }
 
 	private JPlagResult checkPlagiarism() {
 		JavaLanguage language = new JavaLanguage();
@@ -120,20 +136,54 @@ public class FullEvaluator<T extends Tester> {
 		}
 	}
 
+    private void backupSubmissionFiles(Map<File, Submission> submissions) {
+        for (File submissionDirectory : submissions.keySet()) {
+            for (File file : Files.walk(submissionDirectory)) {
+                if (file.isFile()) {
+                    File dir = file.getParentFile();
+                    Path backup = Path.of(dir.toString(), file.getName() + "." + BACKUP_FILE_EXTENSION);
+                    try {
+                        java.nio.file.Files.copy(file.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException e) {
+                        Console.warning("Could not backup file " + file.getPath() + ": " + e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
 	private void restoreSubmissionCodeFiles(Map<File, Submission> submissions) {
+        for (File submissionDirectory : submissions.keySet()) {
+            for (File file : Files.walk(submissionDirectory)) {
+                if (file.isFile()) {
+                    String extension = FilenameUtils.getExtension(file.getName());
+                    if (!extension.equals(BACKUP_FILE_EXTENSION) && !file.delete())
+                        file.deleteOnExit();
+                }
+            }
+        }
+
 		for (File submissionDirectory : submissions.keySet()) {
 			for (File file : Files.walk(submissionDirectory)) {
 				String extension = FilenameUtils.getExtension(file.getName());
-				if (extension.equals("java")) {
+				if (file.exists() && file.isFile() && extension.equals(BACKUP_FILE_EXTENSION)) {
 					File parent = file.getParentFile();
-					File backup = Path.of(parent.getPath(), Files.getNameWithoutExtension(file) + "." + ClassLoader.BACKUP_FILE_EXTENSION).toFile();
-					if (backup.exists() && file != backup) {
-						if (file.delete()) {
-							if (!backup.renameTo(file))
-								Console.warning("Could not restore backup file: " + backup.getPath());
-						} else Console.warning("Could not delete temporary code file: " + file.getPath());
-					}
-				} else file.deleteOnExit();
+					Path restore = Path.of(parent.getPath(), Files.getNameWithoutExtension(file));
+                    try {
+                        java.nio.file.Files.copy(file.toPath(), restore, StandardCopyOption.REPLACE_EXISTING);
+                        if (!file.delete()) {
+                            file.deleteOnExit();
+                            // Console.warning("Could not delete backup file: " + file.getPath());
+                        }
+                    } catch (IOException e) {
+                        Throwable cause = e.getCause();
+                        String message = e.getMessage();
+                        if (cause != null)
+                            message = cause.getMessage();
+                        Console.warning("Could not restore backup file " + file.getPath() + ": " + message);
+                    }
+
+				}
 			}
 		}
 	}
@@ -165,7 +215,7 @@ public class FullEvaluator<T extends Tester> {
 			}
 			long end = System.currentTimeMillis();
 
-			System.out.println("Processed " + validSubmissionCount + " submissions (out of " + submissions.length + ") successfully!");
+			System.out.println("Valid files for " + validSubmissionCount + " submissions (out of " + submissions.length + ").");
 			System.out.println("Elapsed time: " + ((end - start) / 1000.0) + " seconds");
 		}
 
@@ -181,9 +231,9 @@ public class FullEvaluator<T extends Tester> {
 
 		// Analyse all submissions in parallel and wait for everything to be finished
 		List<Future<Tester>> analysed = THREAD_POOL.invokeAll(
-				getEvaluationTasks(submissions, tester, allowedPackages, progress),
-				submissions.size() * SUBMISSION_TIMEOUT_MINUTES,
-				TimeUnit.MINUTES
+            getEvaluationTasks(submissions, tester, allowedPackages, progress),
+            submissions.size() * SUBMISSION_TIMEOUT_MINUTES,
+            TimeUnit.MINUTES
 		);
 
 		for (Future<Tester> future : analysed) {

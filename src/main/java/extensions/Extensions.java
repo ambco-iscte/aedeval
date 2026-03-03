@@ -8,10 +8,25 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 public class Extensions {
+
+    @FunctionalInterface
+    public interface CheckedSupplier<T, E extends Exception> {
+        T get() throws E;
+    }
+
+    public static <T> T tryOrElse(CheckedSupplier<T, ?> block, T defaultValue) {
+        try {
+            return block.get();
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
 
     public static <T> boolean contains(T[] array, T element) {
         for (T item : array) {

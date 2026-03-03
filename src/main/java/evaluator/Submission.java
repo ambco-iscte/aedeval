@@ -44,18 +44,6 @@ public class Submission implements Serializable {
 		List<String> exp = new ArrayList<>(expected);
 		for (File file : Files.walk(dir)) {
 			String n = file.getName();
-
-			// Restore backup if present
-			/*
-			if (FilenameUtils.getExtension(n).equalsIgnoreCase(ClassLoader.BACKUP_FILE_EXTENSION)) {
-				Path dest = Path.of(file.getParent(), Files.getNameWithoutExtension(file) + ".java");
-				try {
-					java.nio.file.Files.copy(file.toPath(), dest, StandardCopyOption.REPLACE_EXISTING);
-				} catch (IOException ignored) { }
-			}
-
-			 */
-
 			files.add(n);
 			exp.remove(n);
 		}
