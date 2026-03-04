@@ -14,11 +14,6 @@
 [![Powered By - JPlag](https://img.shields.io/static/v1?label=Powered+By&message=JPlag&color=7f0f18)](https://jplag.de/)
 [![license - GNU GPLv3](https://img.shields.io/static/v1?label=License&message=GNU+GPLv3&color=a32d2a&logo=gnu)](https://www.gnu.org/licenses/gpl-3.0.en.html#license-text)
 
-[Introduction](#-introduction) •
-[How to Use](#-how-to-use) •
-[How are Assignments Graded?](#-how-does-aedeval-grade-assignments) •
-[Worked Example](#-worked-example)
-
 <br>
 
 ## 🛈 Introduction

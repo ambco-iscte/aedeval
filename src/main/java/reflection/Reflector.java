@@ -1,14 +1,9 @@
 package reflection;
 
-import evaluator.extensions.DoublingHypothesis;
-import extensions.Levenshtein;
-
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.*;
-
-import static extensions.Extensions.joinToString;
 
 /**
  * Classes that inherit Reflector can access methods that facilitate useful reflection operations.

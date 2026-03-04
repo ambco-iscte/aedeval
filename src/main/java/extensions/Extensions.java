@@ -1,17 +1,13 @@
 package extensions;
 
-import evaluator.Submission;
-
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 public class Extensions {
 
@@ -34,6 +30,14 @@ public class Extensions {
                 return true;
         }
         return false;
+    }
+
+    public static <T extends Comparable<? super T>, R> Iterable<R> map(Iterable<T> iterable, Function<T, R> transformer) {
+        Iterator<T> iterator = iterable.iterator();
+        List<R> result = new ArrayList<>();
+        while (iterator.hasNext())
+            result.add(transformer.apply(iterator.next()));
+        return result;
     }
 
     public static <T extends Comparable<? super T>> boolean isSorted(Iterable<T> iterable) {

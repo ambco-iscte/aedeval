@@ -217,7 +217,7 @@ public enum JavacErrorType {
     ServiceImplementationIsInner("service.implementation.is.inner"),
     ServiceImplementationNoArgumentsConstructorNotPublic("service.implementation.no.args.constructor.not.public"),
     ServiceImplementationNotInRightModule("service.implementation.not.in.right.module"),
-    SourceCannotOverwriteInputFile("source.cant.overwrite.input.file"),
+    SourceCannotOverwriteInputFile("source.cant.overwrite.n.file"),
     StackSimError("stack.sim.error"),
     TooManyPatchedModules("too.many.patched.modules"),
     TryResourceMayNotBeAssigned("try.resource.may.not.be.assigned"),

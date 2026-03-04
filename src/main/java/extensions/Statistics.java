@@ -1,7 +1,5 @@
 package extensions;
 
-import java.util.Map;
-
 public class Statistics {
 
     public static <T extends Number> double sum(Iterable<T> iterable) {
@@ -11,7 +9,7 @@ public class Statistics {
         return x;
     }
 
-    public static <T extends Number> double average(Iterable<T> iterable) {
+    public static <T extends Number> double mean(Iterable<T> iterable) {
         double x = 0.0;
         int count = 0;
         for (T item : iterable) {
@@ -21,7 +19,7 @@ public class Statistics {
         return x / count;
     }
 
-    public static double average(double[] array) {
+    public static double mean(double[] array) {
         double x = 0.0;
         int count = 0;
         for (double t : array) {
@@ -33,7 +31,7 @@ public class Statistics {
 
     public static <T extends Number> double variance(Iterable<T> iterable) {
         double x = 0.0;
-        double avg = average(iterable);
+        double avg = mean(iterable);
         int count = 0;
         for (T item : iterable) {
             double xi = item.doubleValue();
@@ -54,17 +52,17 @@ public class Statistics {
         return x / count;
     }
 
-    public static <T extends Number> double getStandardDeviation(Iterable<T> iterable) {
+    public static <T extends Number> double std(Iterable<T> iterable) {
         return Math.sqrt(variance(iterable));
     }
 
-    public static <T extends Number> double getStandardDeviation(Iterable<T> iterable, double average) {
+    public static <T extends Number> double std(Iterable<T> iterable, double average) {
         return Math.sqrt(variance(iterable, average));
     }
 
     public static double variance(double[] array) {
         double x = 0.0;
-        double avg = average(array);
+        double avg = mean(array);
         int count = 0;
         for (double item : array) {
             x += (item - avg) * (item - avg);
@@ -83,11 +81,11 @@ public class Statistics {
         return x / count;
     }
 
-    public static double getStandardDeviation(double[] array) {
+    public static double std(double[] array) {
         return Math.sqrt(variance(array));
     }
 
-    public static double getStandardDeviation(double[] array, double average) {
+    public static double std(double[] array, double average) {
         return Math.sqrt(variance(array, average));
     }
 }
