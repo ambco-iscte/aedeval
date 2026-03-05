@@ -1,24 +1,17 @@
 package extensions;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Type;
-import java.lang.reflect.TypeVariable;
+import java.lang.reflect.*;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
 public class Extensions {
 
-    @FunctionalInterface
-    public interface CheckedSupplier<T, E extends Exception> {
-        T get() throws E;
-    }
-
-    public static <T> T tryOrElse(CheckedSupplier<T, ?> block, T defaultValue) {
+    public static <T> T tryOrElse(Callable<T> block, T defaultValue) {
         try {
-            return block.get();
+            return block.call();
         } catch (Exception e) {
             return defaultValue;
         }
@@ -41,6 +34,10 @@ public class Extensions {
     }
 
     public static <T extends Comparable<? super T>> boolean isSorted(Iterable<T> iterable) {
+        return isSorted(iterable, true);
+    }
+
+    public static <T extends Comparable<? super T>> boolean isSorted(Iterable<T> iterable, boolean ascending) {
         Iterator<T> iterator = iterable.iterator();
 
         if (!iterator.hasNext())
@@ -55,12 +52,31 @@ public class Extensions {
         T previous = current;
         current = iterator.next();
         while (iterator.hasNext()) {
-            if (current.compareTo(previous) < 0)
+            boolean failIf;
+            if (ascending)  failIf = current.compareTo(previous) < 0;
+            else            failIf = current.compareTo(previous) > 0;
+            if (failIf)
                 return false;
+
             previous = current;
             current = iterator.next();
         }
         return current.compareTo(previous) >= 0;
+    }
+
+    public static <T extends Comparable<? super T>> boolean isSorted(T[] array) {
+        return isSorted(array, true);
+    }
+
+    public static <T extends Comparable<? super T>> boolean isSorted(T[] array, boolean ascending) {
+        for (int i = 0; i < array.length - 1; i++) {
+            boolean failIf;
+            if (ascending)  failIf = array[i].compareTo(array[i + 1]) > 0;
+            else            failIf = array[i].compareTo(array[i + 1]) < 0;
+            if (failIf)
+                return false;
+        }
+        return true;
     }
 
     public static <T> List<T> copy(Iterable<T> iterable) {
@@ -117,14 +133,6 @@ public class Extensions {
 
         for (int i = 0; i < a.size(); i++) {
             if (!Objects.equals(a.get(i), b.get(i)))
-                return false;
-        }
-        return true;
-    }
-
-    public static <T extends Comparable<? super T>> boolean isSorted(T[] array) {
-        for (int i = 0; i < array.length - 1; i++) {
-            if (array[i].compareTo(array[i + 1]) > 0)
                 return false;
         }
         return true;
@@ -288,9 +296,8 @@ public class Extensions {
 
             if (o.getClass().isArray())
                 return "[" + joinToString((Object[]) o, Extensions::toStringOrDefault) + "]";
-            else if (Iterable.class.isAssignableFrom(o.getClass()))
+            if (Iterable.class.isAssignableFrom(o.getClass()))
                 return "[" + joinToString((Iterable<?>) o, Extensions::toStringOrDefault) + "]";
-
             return Objects.toString(o);
         } catch (Throwable e1) {
             try {
@@ -341,5 +348,30 @@ public class Extensions {
             array[i] = (int) (min + (max - min) * Math.random());
         }
         return array;
+    }
+
+    public static <T extends Comparable<? super T>> T max(T first, T second) {
+        if (first.compareTo(second) >= 0)
+            return first;
+        return second;
+    }
+
+    public static <T extends Comparable<? super T>> T min(T first, T second) {
+        if (first.compareTo(second) <= 0)
+            return first;
+        return second;
+    }
+
+    public static String signature(Method method) {
+        String base = method.getReturnType().getSimpleName() + " " + method.getDeclaringClass() + "." + method.getName();
+        StringBuilder s = new StringBuilder(base + "(");
+        if (method.getParameterCount() > 0) {
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            s.append(parameterTypes[0].getSimpleName());
+            for (int i = 1; i < parameterTypes.length; i++)
+                s.append(", ").append(parameterTypes[i].getSimpleName());
+        }
+        s.append(")");
+        return s.toString();
     }
 }

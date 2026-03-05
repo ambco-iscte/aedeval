@@ -4,6 +4,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 /**
  * Classes that inherit Reflector can access methods that facilitate useful reflection operations.
@@ -53,6 +54,21 @@ public class Reflector {
         future.get(TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
 
         return handler.getResult();
+    }
+
+    /**
+     * Runs a Supplier asynchronously.
+     * @param block The Supplier to be executed asynchronously. Takes no arguments and returns a value of type T.
+     * @return The result of executing the Supplier.
+     * @param <T> Result type.
+     */
+    public static <T> T async(Supplier<T> block) throws ExecutionException, InterruptedException, TimeoutException {
+        T result;
+        try (ExecutorService handler = Executors.newSingleThreadExecutor()) {
+            Future<T> future = handler.submit(block::get);
+            result = future.get(TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
+        }
+        return result;
     }
 
     /**

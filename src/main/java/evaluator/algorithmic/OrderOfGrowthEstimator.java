@@ -2,22 +2,65 @@ package evaluator.algorithmic;
 
 import org.apache.commons.math3.distribution.FDistribution;
 import org.apache.commons.math3.stat.regression.OLSMultipleLinearRegression;
+import org.jspecify.annotations.NonNull;
 
 import java.util.*;
 
 public abstract class OrderOfGrowthEstimator<T> {
 
-    private record Regression(
-        OrderOfGrowth model,
-        double scalar,
-        double intercept,
-        OLSMultipleLinearRegression regression,
-        double fTestPValue,
-        double aic
-    ) { }
+    public record Regression(OrderOfGrowth model, List<Sample> samples, OLSMultipleLinearRegression regression) {
 
-    public record Fit(OrderOfGrowth model, double confidence) { }
+        public record FTestResult(double statistic, double pValue) { }
 
+        public double AIC() {
+            int n = samples.size();
+            return n * Math.log(RSS() / n) + 4.0;
+        }
+
+        public double BIC() {
+            int n = samples.size();
+            return n * Math.log(RSS() / n) + 2 * Math.log(n);
+        }
+
+        public double RSS() {
+            return regression.calculateResidualSumOfSquares();
+        }
+
+        public double RSquared() {
+            return regression.calculateRSquared();
+        }
+
+        public double scalar() {
+            double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
+            return maxPredicted * regression.estimateRegressionParameters()[1];
+        }
+
+        public double intercept() {
+            double maxTime = samples.stream().max(Comparator.comparing(Sample::time)).map(Sample::time).orElse(1.0);
+            double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
+            return (maxTime / maxPredicted) * regression.estimateRegressionParameters()[0];
+        }
+
+        public FTestResult fTest() {
+            int df1 = 1;
+            int df2 = samples.size() - 2;
+
+            double tss = regression.calculateTotalSumOfSquares();
+            double rss = regression.calculateResidualSumOfSquares();
+
+            double statistic = ((tss - rss) / df1) / (rss / df2);
+            double pValue = 1 - new FDistribution(df1, df2).cumulativeProbability(statistic);
+
+            return new FTestResult(statistic, pValue);
+        }
+
+        @Override
+        public @NonNull String toString() {
+            return String.format("%f + %f * (%s)", intercept(), scalar(), model);
+        }
+    }
+
+    public record Fit(Regression regression, double confidence) { }
     public record Sample(long n, double time) { }
 
     protected abstract T input(long n);
@@ -38,14 +81,7 @@ public abstract class OrderOfGrowthEstimator<T> {
             samples.add(new Sample(n, (double) sum / repeats));
         }
 
-        Optional<Sample> max = samples.stream().max(Comparator.comparing(sample -> sample.time));
-        if (max.isPresent()) {
-            double maxTime = max.get().time;
-            samples.replaceAll(sample -> new Sample(sample.n, sample.time / maxTime));
-        }
-
-        Regression[] models = fit(samples, exponent(samples));
-        return new Fit(models[0].model, score(models));
+        return fit(samples, exponent(samples));
     }
 
     private double exponent(List<Sample> samples) {
@@ -53,15 +89,19 @@ public abstract class OrderOfGrowthEstimator<T> {
         for (int i = 1; i < samples.size(); i++) {
             Sample sample = samples.get(i);
             Sample previous = samples.get(i - 1);
-            double exponent = (Math.log(sample.time) - Math.log(previous.time)) / (Math.log(sample.n) - Math.log(previous.n));
-            estimates.add(exponent);
+
+            double diffLogTime = Math.log(sample.time) - Math.log(previous.time);
+            double diffLogN = Math.log(sample.n) - Math.log(previous.n);
+            double logSlope = diffLogTime / diffLogN;
+
+            estimates.add(logSlope);
         }
         estimates.sort(Double::compare);
         return estimates.get(estimates.size() / 2);
     }
 
     private boolean plausible(OrderOfGrowth model, double exponent) {
-        if (model == OrderOfGrowth.CONSTANT || model == OrderOfGrowth.LOGARITHMIC)
+        if (model == OrderOfGrowth.CONSTANT || model == OrderOfGrowth.LOGLOG || model == OrderOfGrowth.LOGARITHMIC)
             return exponent < 0.6;
         if (model == OrderOfGrowth.LINEAR || model == OrderOfGrowth.LINEARITHMIC)
             return exponent >= 0.6 && exponent < 1.6;
@@ -76,55 +116,60 @@ public abstract class OrderOfGrowthEstimator<T> {
         return true;
     }
 
-    private Regression[] fit(List<Sample> samples, double predictedExponent) {
+    private Fit fit(List<Sample> samples, double predictedExponent) {
         List<Regression> result = new ArrayList<>();
-        for (OrderOfGrowth model : OrderOfGrowth.BASIS)
-            if (plausible(model, predictedExponent))
-                result.add(fit(model, samples));
-        result.sort(Comparator.comparing(regression -> regression.aic));
-        return result.toArray(new Regression[0]);
+        for (OrderOfGrowth model : OrderOfGrowth.COMMON) {
+            //if (plausible(model, predictedExponent))
+            Regression fit = fit(model, samples);
+            if (!Double.isNaN(fit.AIC()))
+                result.add(fit);
+        }
+
+        // Wagenmakers, EJ., Farrell, S. AIC model selection using Akaike weights.
+        // Psychonomic Bulletin & Review 11, 192–196 (2004). https://doi.org/10.3758/BF03206482
+        double smallestAIC = result.stream().min(Comparator.comparing(Regression::AIC)).orElse(result.getFirst()).AIC();
+        double sumRelativeLikelihoods = result.stream().mapToDouble(regression ->
+            Math.exp(-0.5 * (regression.AIC() - smallestAIC))
+        ).sum();
+        Map<Regression, Double> akaikeWeights = new HashMap<>();
+        for (Regression model : result) {
+            double relativeLikelihoodToBest = Math.exp(-0.5 * (model.AIC() - smallestAIC));
+            akaikeWeights.put(model, relativeLikelihoodToBest / sumRelativeLikelihoods);
+        }
+
+        result.sort(Comparator.comparing(akaikeWeights::get));
+        Regression best = result.getLast();
+        Regression secondBest = result.get(result.size() - 2);
+
+        double wBest = akaikeWeights.get(best);
+        double wSecond = akaikeWeights.get(secondBest);
+        double separationFromSecondBest = wBest > 0 ? (wBest - wSecond) / wBest : 0;
+
+        double pValueGate = 1.0 / (1 + Math.pow(best.fTest().pValue / 0.05, 6));
+
+        double confidence = wBest * separationFromSecondBest * pValueGate;
+
+        return new Fit(best, confidence);
     }
 
     private Regression fit(OrderOfGrowth model, List<Sample> samples) {
         double[][] x = new double[samples.size()][1];
-        for (int i = 0; i < samples.size(); i++) {
-            x[i][0] = model.predict(samples.get(i));
-        }
+        double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
+        for (int i = 0; i < samples.size(); i++)
+            x[i][0] = model.predict(samples.get(i)) / maxPredicted;
 
+        double maxTime = samples.stream().max(Comparator.comparing(Sample::time)).map(Sample::time).orElse(1.0);
         double[] y = new double[samples.size()];
         for (int i = 0; i < y.length; i++)
-            y[i] = samples.get(i).time;
+            y[i] = samples.get(i).time / maxTime;
 
-        // Coefficients
         OLSMultipleLinearRegression regression = new OLSMultipleLinearRegression();
         regression.setNoIntercept(false);
         regression.newSampleData(y, x);
-        double[] coefficients = regression.estimateRegressionParameters();
-        double intercept = coefficients[0];
-        double scalar = coefficients[1];
 
-        // Degrees of Freedom
-        int df1 = 1;
-        int df2 = samples.size() - 2;
-
-        // F-Test
-        double tss = regression.calculateTotalSumOfSquares();
-        double rss = regression.calculateResidualSumOfSquares();
-        double statistic = ((tss - rss) / df1) / (rss / df2);
-        FDistribution fDistribution = new FDistribution(df1, df2);
-        double pValue = 1 - fDistribution.cumulativeProbability(statistic);
-
-        // AIC
-        double aic = samples.size() * Math.log(regression.calculateResidualSumOfSquares() / samples.size()) / 4.0;
-
-        return new Regression(model, scalar, intercept, regression, pValue, aic);
+        return new Regression(model, samples, regression);
     }
 
-    private double score(Regression[] models) {
-        if (models.length < 2)
-            return 1.0;
-        return 0.0; // TODO: separation, cross-validation by storing double[] times in Sample
-    }
 
     private long getElapsedTimeNanos(long input) {
         T data = input(input);
@@ -155,7 +200,8 @@ public abstract class OrderOfGrowthEstimator<T> {
             }
         };
         OrderOfGrowthEstimator.Fit fit = estimator.fit(1000L, 10, 5);
-        System.out.println(fit.model);
-        System.out.println(fit.confidence);
+        System.out.println("T(N) ~ " + fit.regression);
+        System.out.println("T(N) ~ O(" + fit.regression.model + ")");
+        System.out.println("Confidence = " + fit.confidence);
     }
 }

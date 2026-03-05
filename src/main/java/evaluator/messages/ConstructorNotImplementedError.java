@@ -9,10 +9,16 @@ public class ConstructorNotImplementedError extends Result {
 
     private final Class<?>[] parameterTypes;
 
+    private final String[] parameterTypeNames;
+
     public ConstructorNotImplementedError(Test currentTest, Class<?> type, Class<?>[] parameterTypes) {
         super(currentTest);
         this.type = type;
         this.parameterTypes = parameterTypes;
+
+        parameterTypeNames = new String[parameterTypes.length];
+        for (int i = 0; i < parameterTypeNames.length; i++)
+            parameterTypeNames[i] = parameterTypes[i].getName();
     }
 
     public Class<?> getType() {
@@ -39,7 +45,7 @@ public class ConstructorNotImplementedError extends Result {
         if (parameterTypes == null)
             message = String.format("Constructor not implemented: public %s()", type.getSimpleName());
         else
-            message = String.format("Constructor not implemented: public %s(%s)", type.getSimpleName(), Extensions.joinToString(parameterTypes));
+            message = String.format("Constructor not implemented: public %s(%s)", type.getSimpleName(), Extensions.joinToString(parameterTypeNames));
         return message + ". If you implemented the constructor, you might've used the wrong parameter types.";
     }
 }

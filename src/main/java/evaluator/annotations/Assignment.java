@@ -3,7 +3,7 @@ package evaluator.annotations;
 import java.lang.annotation.*;
 
 /**
- * Descriptive annotation that describes a Tester class's corresponding assignment.
+ * Descriptive annotation that describes a Tester class.
  *
  * @author Afonso Caniço
  */

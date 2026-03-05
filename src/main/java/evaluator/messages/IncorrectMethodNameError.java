@@ -2,15 +2,17 @@ package evaluator.messages;
 
 import evaluator.annotations.Test;
 
+import java.lang.reflect.Method;
+
 public class IncorrectMethodNameError extends Result {
 
     private final Class<?> type;
 
     private final String expected;
 
-    private final String found;
+    private final Method found;
 
-    public IncorrectMethodNameError(Test currentTest, Class<?> type, String expected, String found) {
+    public IncorrectMethodNameError(Test currentTest, Class<?> type, String expected, Method found) {
         super(currentTest);
         this.type = type;
         this.expected = expected;
@@ -21,7 +23,7 @@ public class IncorrectMethodNameError extends Result {
         return expected;
     }
 
-    public String getClosestMatchName() {
+    public Method getClosestMatch() {
         return found;
     }
 
@@ -37,7 +39,7 @@ public class IncorrectMethodNameError extends Result {
 
     @Override
     public String getMessage() {
-        return String.format("Could not find method %s.%s, but found method with similar name: %s. " +
-                "Make sure you implement methods with the intended name!", type.getSimpleName(), expected, found);
+        return String.format("Could not find method <%s.%s>, but found method with similar name: <%s>. " +
+                "Make sure you implement methods with the intended name!", type.getSimpleName(), expected, found.getName());
     }
 }

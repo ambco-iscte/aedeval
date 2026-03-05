@@ -1,9 +1,6 @@
 package evaluator.messages;
 
 import evaluator.annotations.Test;
-import extensions.Extensions;
-
-import java.util.Arrays;
 
 public class MethodNotImplementedError extends Result {
 
@@ -30,6 +27,6 @@ public class MethodNotImplementedError extends Result {
 
     @Override
     public String getMessage() {
-        return "Method not implemented: " + cause.getMessage() + ". Are you sure you used the correct name and parameter types?";
+        return "Method not implemented: <" + cause.getMessage() + ">. Are you sure you used the correct name, return type, and parameter types?";
     }
 }

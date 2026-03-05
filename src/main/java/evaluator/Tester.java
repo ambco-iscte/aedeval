@@ -1,5 +1,7 @@
 package evaluator;
 
+import evaluator.algorithmic.OrderOfGrowth;
+import evaluator.algorithmic.OrderOfGrowthEstimator;
 import evaluator.annotations.*;
 import evaluator.messages.*;
 import extensions.Console;
@@ -24,6 +26,7 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 /**
  * Abstract class used to test a student's submission. Automatically loads .java files, compiles them, and runs the
@@ -50,7 +53,7 @@ public class Tester extends Reflector {
 
 	public interface SideEffectChecker {
 		String message(boolean success);
-		boolean check();
+		boolean check() throws Exception;
 	}
 
 	public class ObjectInstantiation {
@@ -58,7 +61,7 @@ public class Tester extends Reflector {
 		private final Constructor<?> constructor;
 		private final Object[] initArgs;
 
-		public ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
+        private ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
 			this.constructor = constructor;
 			this.initArgs = initArgs;
 		}
@@ -97,13 +100,8 @@ public class Tester extends Reflector {
 				else thrown = e;
 			}
 
-			if (thrown == null) {
+			if (thrown == null || !exception.isAssignableFrom(thrown.getClass()))
 				log(new ConstructorMissingExceptionError<>(currentTest, this, exception, null));
-				fail();
-			} else if (!exception.isAssignableFrom(thrown.getClass())) {
-				log(new ConstructorMissingExceptionError<>(currentTest, this, exception, thrown));
-				fail();
-			}
 		}
 
 		@Override
@@ -119,8 +117,9 @@ public class Tester extends Reflector {
 		private final Object[] arguments;
 		private Object result = NONE;
 		private Throwable exception = null;
+        private OrderOfGrowth runtimeComplexity;
 
-		public MethodCall(Method method, Object caller, Object[] arguments) {
+		private MethodCall(Method method, Object caller, Object[] arguments) {
 			this.method = method;
 			this.caller = caller;
 
@@ -215,12 +214,12 @@ public class Tester extends Reflector {
 				fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-				fail();
+                fail();
 			} else if (threwException()) {
 				Result res = new MethodInvocationException<>(currentTest, this, type, exception.getClass());
 				log(res);
-				if (!res.passed())
-					fail();
+                if (!res.passed())
+                    fail();
 			}
 		}
 
@@ -228,20 +227,20 @@ public class Tester extends Reflector {
 			log(this);
 			if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-				fail();
+                fail();
 			} else if (threwException()) {
 				log(new AssertDoesNotThrowFailedError(currentTest, this, exception));
-				fail();
+                //fail();
 			} else
-				log(Result.success(currentTest, "Method shouldn't have thrown any exception, and it didn't! Hooray!"));
+				log(Result.success(currentTest, this + " shouldn't have thrown any exception, and it didn't! Hooray!"));
 		}
 
 		public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
 			log(this);
-			Result res = new MethodInvocationSideEffect(currentTest, this, checker, checker.check());
+			Result res = new MethodInvocationSideEffect(currentTest, this, checker);
 			log(res);
-			if (!res.passed())
-				fail();
+            //if (!res.passed())
+                //fail();
 			return res.passed();
 		}
 
@@ -250,14 +249,14 @@ public class Tester extends Reflector {
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
 				log(res);
-				if (!res.passed())
-					fail();
+                //if (!res.passed())
+                    //fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-				fail();
+                //fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
-				fail();
+                //fail();
 			}
 			return expected;
 		}
@@ -268,14 +267,14 @@ public class Tester extends Reflector {
             if (isSuccess()) {
                 Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
                 log(res);
-                if (!res.passed())
-                    fail();
+                //if (!res.passed())
+                    //fail();
             } else if (exception instanceof TimeoutException) {
                 log(new MethodTimeoutError(currentTest, this));
-                fail();
+                //fail();
             } else if (threwException()) {
                 log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
-                fail();
+                //fail();
             }
             return (I) Arrays.asList(expected);
         }
@@ -285,14 +284,14 @@ public class Tester extends Reflector {
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.ANY);
 				log(res);
-				if (!res.passed())
-					fail();
+                //if (!res.passed())
+                    //fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-				fail();
+                //fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
-				fail();
+                //fail();
 			}
 			return expected[0];
 		}
@@ -303,14 +302,14 @@ public class Tester extends Reflector {
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
 				log(res);
-				if (!res.passed())
-					fail();
+                //if (!res.passed())
+                    //fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-				fail();
+                //fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
-				fail();
+                //fail();
 			}
 			return expected;
 		}
@@ -330,18 +329,48 @@ public class Tester extends Reflector {
 		}
 	}
 
+    public class AsymptoticRuntime {
+        private final Object caller;
+        private final Method method;
+        private final Function<Long, Object[]> arguments;
+
+        private AsymptoticRuntime(Object caller, Method method, Function<Long, Object[]> arguments) {
+            this.caller = caller;
+            this.method = method;
+            this.arguments = arguments;
+        }
+
+        public void assertTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws ManualFailureException {
+            if (confidence < 0 || confidence > 1)
+                throw new IllegalArgumentException("Confidence value must be in [0, 1].");
+            OrderOfGrowthEstimator.Fit fit = new OrderOfGrowthEstimator<Object[]>() {
+                @Override
+                protected Object[] input(long n) {
+                    return arguments.apply(n);
+                }
+
+                @Override
+                protected void action(Object[] input) {
+                    try {
+                        method.invoke(caller, input);
+                    } catch (Exception ignored) { }
+                }
+
+                @Override
+                protected long update(long n) {
+                    return n + n;
+                }
+            }.fit(initial, steps, repeats);
+            log(new MethodRuntimeComplexity(currentTest, method, complexity, confidence, fit));
+        }
+    }
+
 	private final Map<Test, List<MethodCall>> invocations = new HashMap<>();
-
 	private final Map<Test, List<Result>> results = new HashMap<>();
-
 	private final Map<String, Class<?>> compiledTypes = new HashMap<>(); // Only compile class once, reuse if possible
-
 	private final List<String> invalidClassNames = new ArrayList<>(); // If an error is raised, don't try loading again
-
 	private Test currentTest;
-
 	private final Submission submission;
-
     private final String[] allowedPackages;
 
 	/**
@@ -460,25 +489,30 @@ public class Tester extends Reflector {
 
 	/**
 	 * Finds a method in a given class. Case-insensitive.
-	 * @param type The class.
-	 * @param name The method to find.
+	 * @param type The method's declaring class.
+     * @param returnType The method's return type.
+	 * @param name The method name to find.
 	 * @param parameterTypes The method's parameter types.
 	 * @return The first method found which equals the name, ignoring case.
 	 * @throws NoSuchMethodException If no matching method is found.
 	 */
-	protected Method findMethod(Class<?> type, String name, Class<?>... parameterTypes) throws NoSuchMethodException {
+	protected Method findMethod(Class<?> type, Class<?> returnType, String name, Class<?>... parameterTypes) throws NoSuchMethodException {
 		Levenshtein lev = new Levenshtein();
 		for (Method method : type.getDeclaredMethods()) {
 			boolean nameIsSimilar = method.getName().equals(name) || lev.similarity(method.getName(), name) >= 0.8;
-			if (Arrays.equals(method.getParameterTypes(), parameterTypes) && nameIsSimilar) {
-				if (!method.getName().equals(name)) {
-					//System.err.println("[" + submission.getName() + "] Could not find method " + type.getSimpleName() + "." + name + ", but found close viable match: " + method.getName());
-					log(new IncorrectMethodNameError(currentTest, type, name, method.getName()));
-				}
-				return method;
+            boolean compatibleRetType = method.getReturnType() == returnType || returnType.isAssignableFrom(method.getReturnType());
+			if (Arrays.equals(method.getParameterTypes(), parameterTypes) && nameIsSimilar && compatibleRetType) {
+				if (!method.getName().equals(name))
+					log(new IncorrectMethodNameError(currentTest, type, name, method));
+                return method;
 			}
 		}
-		throw new NoSuchMethodException(type.getName() + "." + name + Arrays.toString(parameterTypes).replace('[', '(').replace(']', ')'));
+
+        String[] paramTypeNames = new String[parameterTypes.length];
+        for (int i = 0; i < paramTypeNames.length; i++)
+            paramTypeNames[i] = parameterTypes[i].getName();
+
+		throw new NoSuchMethodException(returnType.getName() + " " + type.getName() + "." + name + Arrays.toString(paramTypeNames).replace('[', '(').replace(']', ')'));
 	}
 
 	/**
@@ -491,6 +525,10 @@ public class Tester extends Reflector {
 	protected MethodCall invoke(Method method, Object object, Object... args) {
 		return new MethodCall(method, object, args);
 	}
+
+    protected AsymptoticRuntime asymptotic(Object caller, Method method, Function<Long, Object[]> arguments) {
+        return new AsymptoticRuntime(caller, method, arguments);
+    }
 
 	/**
 	 * Runs all tests in a submission testing class.
@@ -547,10 +585,8 @@ public class Tester extends Reflector {
 			} catch (InvocationTargetException e) {
 				Throwable target = e.getTargetException();
 
-				if (target instanceof ManualFailureException ex && ex.getMessage() != null) {
-					//System.err.println("[" + submission.getName() + "] " + "Fail: " + ex.getMessage());
+				if (target instanceof ManualFailureException ex && ex.getMessage() != null)
 					log(Result.failure(currentTest, ex.getMessage()));
-				}
 				else if (target instanceof NoSuchMethodException ex)
 					log(new MethodNotImplementedError(currentTest, ex));
 				else if (target instanceof NoSuchFieldException ex)

@@ -1,11 +1,107 @@
 package evaluator.algorithmic;
 
+import extensions.Extensions;
+import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
+
 import java.util.List;
 
-public abstract class OrderOfGrowth {
+public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
+
+    private record Signature(int expCoeff, int expPow, int poly, int log, int loglog) implements Comparable<Signature> {
+
+        private static final String NO_NEG_EXP = "Growth order signatures cannot have negative exponents!";
+
+        Signature normalized() {
+            if (expCoeff == 0 || expPow == 0)
+                return new Signature(0, 0, poly, log, loglog);
+            return this;
+        }
+
+        @Override
+        public int compareTo(@NotNull Signature o) {
+            // Compare Exponential Powers
+            if (expPow != o.expPow)
+                return Integer.compare(expPow, o.expPow); // Different Powers -> Larger Power Wins
+            else if (expPow != 0 && expCoeff != o.expCoeff)
+                return Integer.compare(expCoeff, o.expCoeff); // Same Powers -> Larger Coefficient Wins
+
+            // Compare Polynomial Exponents
+            if (poly != o.poly)
+                return Integer.compare(poly, o.poly);
+
+            // Compare Log Exponents
+            if (log != o.log)
+                return Integer.compare(log, o.log);
+
+            // Compare LogLog Exponents
+            return Integer.compare(loglog, o.loglog);
+        }
+
+        public Signature times(Signature other) {
+            int a0, exp0;
+            if (expPow == other.expPow) {
+                exp0 = expPow;
+                a0 = expCoeff + other.expCoeff;
+            } else if (expPow > other.expPow) {
+                exp0 = expPow;
+                a0 = expCoeff;
+            } else {
+                exp0 = other.expPow;
+                a0 = other.expCoeff;
+            }
+            return new Signature(a0, exp0, poly + other.poly, log + other.log, loglog + other.loglog).normalized();
+        }
+
+        public Signature div(Signature other) {
+            int a0 = 0, exp0 = 0;
+            if (expPow != 0 || other.expPow != 0) {
+                if (expPow == other.expPow) {
+                    exp0 = expPow;
+                    a0 = expCoeff - other.expCoeff;
+                    if (a0 < 0)
+                        throw new IllegalArgumentException(NO_NEG_EXP);
+                } else if (expPow > other.expPow) {
+                    exp0 = expPow;
+                    a0 = expCoeff;
+                } else
+                    throw new IllegalArgumentException(NO_NEG_EXP);
+            }
+
+            int poly0 = poly - other.poly;
+            int log0 = log - other.log;
+            int loglog0 = loglog - other.loglog;
+
+            if (poly0 < 0 || log0 < 0 || loglog0 < 0)
+                throw new IllegalArgumentException(NO_NEG_EXP);
+
+            return new Signature(a0, exp0, poly0, log0, loglog0).normalized();
+        }
+
+        @Override
+        public @NotNull String toString() {
+            return "exp(%d * N^%d) * N^%d * (logN)^%d * (loglogN)^%d".formatted(expCoeff, expPow, poly, log, loglog);
+        }
+    }
+
+    private final Signature signature;
+
+    private OrderOfGrowth(Signature signature) {
+        this.signature = signature.normalized();
+    }
+
+    private OrderOfGrowth(int a, int exp, int poly, int log, int loglog) {
+        this.signature = new Signature(a, exp, poly, log, loglog).normalized();
+    }
+
+    @Override
+    public int compareTo(@NonNull OrderOfGrowth o) {
+        return signature.compareTo(o.signature);
+    }
+
     abstract double predict(OrderOfGrowthEstimator.Sample sample);
 
-    public static final OrderOfGrowth CONSTANT = new OrderOfGrowth() {
+    public static final OrderOfGrowth CONSTANT = new OrderOfGrowth(0, 0, 0, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             return 1;
@@ -17,7 +113,19 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth LOGARITHMIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth LOGLOG = new OrderOfGrowth(0, 0, 0, 0, 1) {
+        @Override
+        double predict(OrderOfGrowthEstimator.Sample sample) {
+            return Math.log(Math.log(sample.n()));
+        }
+
+        @Override
+        public String toString() {
+            return "log(log(N))";
+        }
+    };
+
+    public static final OrderOfGrowth LOGARITHMIC = new OrderOfGrowth(0, 0, 0, 1, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             return Math.log(sample.n());
@@ -29,7 +137,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth LINEAR = new OrderOfGrowth() {
+    public static final OrderOfGrowth LINEAR = new OrderOfGrowth(0, 0, 1, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             return sample.n();
@@ -41,7 +149,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth LINEARITHMIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth LINEARITHMIC = new OrderOfGrowth(0, 0, 1, 1, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             double n = sample.n();
@@ -50,11 +158,11 @@ public abstract class OrderOfGrowth {
 
         @Override
         public String toString() {
-            return "Nlg(N)";
+            return "N * log(N)";
         }
     };
 
-    public static final OrderOfGrowth QUADRATIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth QUADRATIC = new OrderOfGrowth(0, 0, 2, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             double n = sample.n();
@@ -67,7 +175,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth CUBIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth CUBIC = new OrderOfGrowth(0, 0, 3, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             double n = sample.n();
@@ -80,7 +188,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth QUARTIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth QUARTIC = new OrderOfGrowth(0, 0, 4, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             double n = sample.n();
@@ -93,7 +201,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth QUINTIC = new OrderOfGrowth() {
+    public static final OrderOfGrowth QUINTIC = new OrderOfGrowth(0, 0, 5, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             double n = sample.n();
@@ -106,7 +214,7 @@ public abstract class OrderOfGrowth {
         }
     };
 
-    public static final OrderOfGrowth EXPONENTIAL = new OrderOfGrowth() {
+    public static final OrderOfGrowth EXPONENTIAL = new OrderOfGrowth(1, 1, 0, 0, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
             return Math.exp(sample.n());
@@ -114,7 +222,7 @@ public abstract class OrderOfGrowth {
 
         @Override
         public String toString() {
-            return "exp(N)";
+            return "expPow(N)";
         }
     };
 
@@ -129,7 +237,7 @@ public abstract class OrderOfGrowth {
 
     public OrderOfGrowth plus(OrderOfGrowth other) {
         OrderOfGrowth self = this;
-        return new OrderOfGrowth() {
+        return new OrderOfGrowth(Extensions.max(self.signature, other.signature)) {
             @Override
             double predict(OrderOfGrowthEstimator.Sample sample) {
                 return self.predict(sample) + other.predict(sample);
@@ -144,7 +252,7 @@ public abstract class OrderOfGrowth {
 
     public OrderOfGrowth minus(OrderOfGrowth other) {
         OrderOfGrowth self = this;
-        return new OrderOfGrowth() {
+        return new OrderOfGrowth(Extensions.max(self.signature, other.signature)) {
             @Override
             double predict(OrderOfGrowthEstimator.Sample sample) {
                 return self.predict(sample) - other.predict(sample);
@@ -159,7 +267,7 @@ public abstract class OrderOfGrowth {
 
     public OrderOfGrowth times(OrderOfGrowth other) {
         OrderOfGrowth self = this;
-        return new OrderOfGrowth() {
+        return new OrderOfGrowth(self.signature.times(other.signature)) {
             @Override
             double predict(OrderOfGrowthEstimator.Sample sample) {
                 return self.predict(sample) * other.predict(sample);
@@ -174,7 +282,7 @@ public abstract class OrderOfGrowth {
 
     public OrderOfGrowth div(OrderOfGrowth other) {
         OrderOfGrowth self = this;
-        return new OrderOfGrowth() {
+        return new OrderOfGrowth(self.signature.div(other.signature)) {
             @Override
             double predict(OrderOfGrowthEstimator.Sample sample) {
                 return self.predict(sample) / other.predict(sample);
@@ -188,6 +296,11 @@ public abstract class OrderOfGrowth {
     }
 
     public static final OrderOfGrowth[] BASIS = new OrderOfGrowth[] {
-        CONSTANT, LOGARITHMIC, LINEAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC, QUINTIC, EXPONENTIAL
+        CONSTANT, LOGARITHMIC, LINEAR, EXPONENTIAL,
+    };
+
+    public static final OrderOfGrowth[] COMMON = new OrderOfGrowth[] {
+        CONSTANT, LOGLOG, LOGARITHMIC, LINEAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC, QUINTIC, EXPONENTIAL,
+        QUADRATIC.times(LOGARITHMIC), CUBIC.times(LOGARITHMIC), QUARTIC.times(LOGARITHMIC), QUINTIC.times(LOGARITHMIC)
     };
 }

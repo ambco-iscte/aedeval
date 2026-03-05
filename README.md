@@ -27,7 +27,7 @@ _en masse_ for a large number of Java assignment submissions.
 The library was developed with efficiency, security, and reasonable robustness in mind:
 - The usage of Java's multithreading functionalities allows for a large number of submissions to be quickly evaluated in parallel;
 - Test cases can be based on output assertions, execution time measurement, source code analysis, or a combination of each type of assessment;
-- [JavaParser](https://javaparser.org/) is used to "clean" students' source code to remove IO calls and (optionally) specific Java language features;
+- [JavaParser](https://javaparser.org/) is used to "clean" students' source code to remove IO calls and (optionally) keep only Java language features from allowed packages;
 - [JPlag](https://github.com/jplag/JPlag) is used to automatically detect plagiarism between student submissions.
 
 <br>
