@@ -3,21 +3,27 @@ package loading;
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.*;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.PackageDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
-import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
-import com.github.javaparser.ast.nodeTypes.modifiers.NodeWithPublicModifier;
+import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.visitor.Visitable;
 import com.github.javaparser.resolution.SymbolResolver;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
-import extensions.Console;
-import extensions.Levenshtein;
-import loading.exceptions.UnsupportedJavaFeatureException;
+import extensions.out.Console;
+import loading.exceptions.PackageNotAllowedException;
 import loading.javaparser.*;
-import org.apache.commons.io.FilenameUtils;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -26,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
 
 import static extensions.Extensions.tryOrElse;
@@ -49,14 +56,26 @@ public final class Source {
         return null;
     }
 
+    public static boolean isCallArgument(Expression n) {
+        if (n == null)
+            return false;
+        MethodCallExpr call = n.findAncestor(MethodCallExpr.class).orElse(null);
+        if (call != null)
+            return call.getArguments().contains(n);
+        ObjectCreationExpr creation = n.findAncestor(ObjectCreationExpr.class).orElse(null);
+        if (creation != null)
+            return creation.getArguments().contains(n);
+        return false;
+    }
+
     /**
      * Is <code>n</code> the declaration of a compact main method?
      * @param n JavaParser method declaration.
      */
     public static boolean isMainMethod(MethodDeclaration n) {
-        return n.getTypeAsString().equals("void") &&
+        return n.getTypeAsString().equals(void.class.getSimpleName().toLowerCase()) &&
                n.getNameAsString().equals("main") &&
-               (n.getParameters().isEmpty() || (n.getParameters().size() == 1 && n.getParameters().get(0).getTypeAsString().equals("String[]")));
+               (n.getParameters().isEmpty() || (n.getParameters().size() == 1 && n.getParameters().get(0).getTypeAsString().equals(String.class.arrayType().getSimpleName())));
     }
 
     /**
@@ -73,45 +92,62 @@ public final class Source {
         return false;
     }
 
-    public static CompilationUnit clean(CompilationUnit unit, String[] allowedPackages) {
+    public static CompilationUnit clean(final CompilationUnit unit, final String[] allowedPackages) throws PackageNotAllowedException {
+        if (unit == null)
+            return null;
+        CompilationUnit cu = unit.clone();
+
         // Configure Java Symbol Solver
         if (StaticJavaParser.getParserConfiguration().getSymbolResolver().isPresent()) {
             SymbolResolver resolver = StaticJavaParser.getParserConfiguration().getSymbolResolver().get();
             if (resolver instanceof JavaSymbolSolver javaSymbolSolver)
-                javaSymbolSolver.inject(unit);
+                javaSymbolSolver.inject(cu);
         }
 
-        unit.setLineComment(" [" + LocalDateTime.now() + "] Source code cleaned by AED Evaluator.");
+        for (Comment comment : cu.findAll(Comment.class))
+            comment.remove();
+        cu = (CompilationUnit) cu.setLineComment(" [" + LocalDateTime.now() + "] Source code cleaned by AED Evaluator.");
 
         // Remove package declaration
-        PackageDeclaration pkg = unit.getPackageDeclaration().orElse(null);
-        unit = unit.removePackageDeclaration();
+        PackageDeclaration pkg = cu.getPackageDeclaration().orElse(null);
+        cu = cu.removePackageDeclaration();
 
         // Remove main method
-        unit = (CompilationUnit) new MainMethodRemover().visit(unit, null);
-
-        // Encapsulate control structure bodies
-        // new ControlStructureBracketer().visit(unit, null);
+        cu = (CompilationUnit) new MainMethodRemover().visit(cu, null);
 
         // Remove System and IO calls
-        unit = (CompilationUnit) new SystemCallRemover().visit(unit, null);
+        cu = (CompilationUnit) new SystemCallRemover().visit(cu, null);
 
-        // Prevent static classes (some students accidentally do this)
-        // unit = (CompilationUnit) new ClassModifierRemover(Modifier.Keyword.STATIC).visit(unit, null);
+        // Match constructor definitions to declaring class
+        cu = (CompilationUnit) new ConstructorValidator().visit(cu, null);
 
         // Remove usages of illegal packages
+        TypeDeclaration<?> self = cu.getTypes().getFirst().orElse(null);
+        IllegalExpressionRemover remover;
         if (pkg == null) {
-            unit = (CompilationUnit) new IllegalExpressionRemover(allowedPackages).visit(unit, null);
+            remover = new IllegalExpressionRemover(self, allowedPackages);
         } else if (allowedPackages == null) {
             String[] allowed = { pkg.getNameAsString() };
-            unit = (CompilationUnit) new IllegalExpressionRemover(allowed).visit(unit, null);
+            remover = new IllegalExpressionRemover(self, allowed);
         } else {
             String[] allowed = Arrays.copyOf(allowedPackages, allowedPackages.length + 1);
             allowed[allowed.length - 1] = pkg.getNameAsString();
-            unit = (CompilationUnit) new IllegalExpressionRemover(allowed).visit(unit, null);
+            remover = new IllegalExpressionRemover(self, allowed);
         }
+        cu = (CompilationUnit) remover.visit(cu, null);
 
-        return unit;
+        // Did the student use illegal packages? Throw an exception.
+        Map<String, Node[]> illegalPackageUsages = remover.getProhibitedUsages();
+        if (!illegalPackageUsages.isEmpty())
+            throw new PackageNotAllowedException(illegalPackageUsages ,allowedPackages);
+
+        // Remove unused imports (hopefully doesn't break anything)
+        UnusedImportCollector visitor = new UnusedImportCollector(cu);
+        visitor.visit(cu, null);
+        for (ImportDeclaration imp : visitor.getUnused())
+            cu.remove(imp);
+
+        return cu;
     }
 
     /**
@@ -127,7 +163,7 @@ public final class Source {
      * @throws FileNotFoundException If the file does not exist.
      */
     @SuppressWarnings("UnusedReturnValue")
-    public static CompilationUnit clean(File source, String[] allowedPackages) throws FileNotFoundException, ParseProblemException, UnsupportedJavaFeatureException {
+    public static CompilationUnit clean(File source, String[] allowedPackages) throws FileNotFoundException, ParseProblemException, PackageNotAllowedException {
         INIT();
         CompilationUnit unit = clean(StaticJavaParser.parse(source), allowedPackages);
         try {
@@ -136,5 +172,64 @@ public final class Source {
             Console.error("Could not write cleaned code to file " + source.getPath() + ": " + e.getMessage());
         }
         return unit;
+    }
+
+    @SuppressWarnings("UnusedReturnValue")
+    public static Path renamePrimaryType(final CompilationUnit unit, File file, String name) throws IOException {
+        CompilationUnit cu = unit == null ? tryOrElse(() -> StaticJavaParser.parse(file), null) : unit;
+        if (cu == null)
+            return null;
+
+        final TypeDeclaration<?> primary = findTypeWithName(cu, extensions.Files.getNameWithoutExtension(file));
+        if (primary == null)
+            return null;
+
+        if (primary.getNameAsString().equals(name))
+            return file.toPath();
+
+        cu = (CompilationUnit) new TypeRenamerVisitor(primary).visit(cu, name);
+        return java.nio.file.Files.writeString(file.toPath(), cu.toString());
+    }
+
+    @SuppressWarnings("UnusedReturnValue")
+    public static Path renamePrimaryType(File file, String name) throws IOException {
+        return renamePrimaryType(tryOrElse(() -> StaticJavaParser.parse(file), null), file, name);
+    }
+
+    private static TypeDeclaration<?> findTypeWithName(final CompilationUnit unit, String name) {
+        for (TypeDeclaration<?> type : unit.getTypes()) {
+            if (type.getNameAsString().equals(name))
+                return type;
+        }
+        return null;
+    }
+
+    private static class TypeRenamerVisitor extends ModifierVisitor<String> {
+        private final String target;
+
+        public TypeRenamerVisitor(TypeDeclaration<?> target) {
+            this.target = target.getNameAsString();
+        }
+
+        @Override
+        public Visitable visit(ClassOrInterfaceType n, String data) {
+            if (tryOrElse(() -> n.resolve().describe().equals(target), n.getNameAsString().equals(target)))
+                return super.visit(n.setName(data), data);
+            return super.visit(n, data);
+        }
+
+        @Override
+        public Visitable visit(ClassOrInterfaceDeclaration n, String data) {
+            if (Objects.equals(n.getNameAsString(), target))
+                return super.visit(n.setName(data), data);
+            return super.visit(n, data);
+        }
+
+        @Override
+        public Visitable visit(ConstructorDeclaration n, String data) {
+            if (Objects.equals(n.getNameAsString(), target))
+                return super.visit(n.setName(data), data);
+            return super.visit(n, data);
+        }
     }
 }

@@ -1,18 +1,14 @@
 package evaluator;
 
-import extensions.Console;
 import extensions.Files;
-import loading.ClassLoader;
-import org.apache.commons.io.FilenameUtils;
+import extensions.out.Console;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.*;
-import java.util.function.Function;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.io.File;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Extracts and lists all files submitted by each student.

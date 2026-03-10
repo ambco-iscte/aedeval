@@ -1,4 +1,4 @@
-package extensions;
+package extensions.out;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -43,9 +43,9 @@ public class ProgressBar {
         int filled = (step.get() * length) / total;
         String bar = String.valueOf(fill).repeat(filled) + "-".repeat(length - filled);
         if (description == null)
-            System.out.printf("\r%s [%s] %s%s", title, bar, percentage, "%");
+            System.out.printf("\r%s [%s] %s%s (%s/%s)", title, bar, percentage, "%", step, total);
         else
-            System.out.printf("\r%s [%s] %s%s %s", title, bar, percentage, "%", description);
+            System.out.printf("\r%s [%s] %s%s (%s/%s) %s", title, bar, percentage, "%", step, total, description);
         if (step.get() == total)
             System.out.println();
     }

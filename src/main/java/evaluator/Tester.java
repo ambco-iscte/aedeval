@@ -4,14 +4,18 @@ import evaluator.algorithmic.OrderOfGrowth;
 import evaluator.algorithmic.OrderOfGrowthEstimator;
 import evaluator.annotations.*;
 import evaluator.messages.*;
-import extensions.Console;
 import extensions.Extensions;
 import extensions.Files;
 import extensions.Levenshtein;
+import extensions.lang.ThrowingBiConsumer;
+import extensions.lang.ThrowingFunction;
+import extensions.out.Console;
 import loading.ClassLoader;
+import loading.Source;
 import loading.SourceLookup;
 import loading.exceptions.ClassLoadingException;
 import loading.exceptions.CompilationException;
+import org.apache.commons.io.FilenameUtils;
 import reflection.Reflector;
 
 import java.io.File;
@@ -26,7 +30,6 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
 
 /**
  * Abstract class used to test a student's submission. Automatically loads .java files, compiles them, and runs the
@@ -99,7 +102,6 @@ public class Tester extends Reflector {
 				if (e instanceof ExecutionException) thrown = e.getCause();
 				else thrown = e;
 			}
-
 			if (thrown == null || !exception.isAssignableFrom(thrown.getClass()))
 				log(new ConstructorMissingExceptionError<>(currentTest, this, exception, null));
 		}
@@ -117,7 +119,6 @@ public class Tester extends Reflector {
 		private final Object[] arguments;
 		private Object result = NONE;
 		private Throwable exception = null;
-        private OrderOfGrowth runtimeComplexity;
 
 		private MethodCall(Method method, Object caller, Object[] arguments) {
 			this.method = method;
@@ -230,7 +231,7 @@ public class Tester extends Reflector {
                 fail();
 			} else if (threwException()) {
 				log(new AssertDoesNotThrowFailedError(currentTest, this, exception));
-                //fail();
+                fail();
 			} else
 				log(Result.success(currentTest, this + " shouldn't have thrown any exception, and it didn't! Hooray!"));
 		}
@@ -330,67 +331,97 @@ public class Tester extends Reflector {
 	}
 
     public class AsymptoticRuntime {
-        private final Object caller;
-        private final Method method;
-        private final Function<Long, Object[]> arguments;
+        private final ThrowingFunction<Long, Object> caller;
+        private final String description;
+        private final ThrowingBiConsumer<Object, Long> action;
 
-        private AsymptoticRuntime(Object caller, Method method, Function<Long, Object[]> arguments) {
+        private AsymptoticRuntime(String description, ThrowingFunction<Long, Object> caller, ThrowingBiConsumer<Object, Long> action) {
             this.caller = caller;
-            this.method = method;
-            this.arguments = arguments;
+            this.description = description;
+            this.action = action;
         }
 
-        public void assertTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws ManualFailureException {
+        /**
+         * Analyses an action's asymptotic time complexity using regression analysis.
+         * @param complexity Expected asymptotic runtime order of growth.
+         * @param initial Initial input size N.
+         * @param steps Number of different input sizes to use.
+         * @param repeats How many times each input size will be repeated (higher = more accuracy for each N).
+         * @param confidence The expected growth order should be estimated with at least this much confidence.
+         */
+        public void assertTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
             if (confidence < 0 || confidence > 1)
                 throw new IllegalArgumentException("Confidence value must be in [0, 1].");
-            OrderOfGrowthEstimator.Fit fit = new OrderOfGrowthEstimator<Object[]>() {
+            OrderOfGrowthEstimator.Fit fit = new OrderOfGrowthEstimator<Long, Exception>() {
+                private Object callingObject;
+
                 @Override
-                protected Object[] input(long n) {
-                    return arguments.apply(n);
+                protected Long input(long n) throws Exception {
+                    callingObject = caller.apply(n);
+                    return n;
                 }
 
                 @Override
-                protected void action(Object[] input) {
+                protected void action(Long input)  {
                     try {
-                        method.invoke(caller, input);
+                        action.accept(callingObject, input);
                     } catch (Exception ignored) { }
                 }
 
                 @Override
                 protected long update(long n) {
-                    return n + n;
+                    return Math.addExact(n, n);
                 }
             }.fit(initial, steps, repeats);
-            log(new MethodRuntimeComplexity(currentTest, method, complexity, confidence, fit));
+            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit));
+            System.gc();
+        }
+
+        public void assertTimeComplexityOrBelow(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
+            if (confidence < 0 || confidence > 1)
+                throw new IllegalArgumentException("Confidence value must be in [0, 1].");
+            OrderOfGrowthEstimator.Fit fit = new OrderOfGrowthEstimator<Long, Exception>() {
+                private Object callingObject;
+
+                @Override
+                protected Long input(long n) throws Exception {
+                    callingObject = caller.apply(n);
+                    return n;
+                }
+
+                @Override
+                protected void action(Long input)  {
+                    try {
+                        action.accept(callingObject, input);
+                    } catch (Exception ignored) { }
+                }
+
+                @Override
+                protected long update(long n) {
+                    return Math.addExact(n, n);
+                }
+            }.fit(initial, steps, repeats);
+            log(new RuntimeComplexityEstimationLessThanOrEqual(currentTest, description, complexity, confidence, fit));
+            System.gc();
         }
     }
 
 	private final Map<Test, List<MethodCall>> invocations = new HashMap<>();
-	private final Map<Test, List<Result>> results = new HashMap<>();
+	private final Map<Test, Set<Result>> results = new HashMap<>();
 	private final Map<String, Class<?>> compiledTypes = new HashMap<>(); // Only compile class once, reuse if possible
 	private final List<String> invalidClassNames = new ArrayList<>(); // If an error is raised, don't try loading again
 	private Test currentTest;
 	private final Submission submission;
-    private final String[] allowedPackages;
+    private boolean silent = false;
 
 	/**
 	 * Creates an instance of a tester for a directory containing Java source code files.
 	 * @param submission Submission to be tested.
-     * @param allowedPackages Names of allowed packages.
 	 */
-	public Tester(Submission submission, String[] allowedPackages) {
+	public Tester(Submission submission) {
 		this.submission = submission;
-        this.allowedPackages = allowedPackages;
 	}
 
-    /**
-     * Creates an instance of a tester for a directory containing Java source code files.
-     * @param submission Submission to be tested.
-     */
-    public Tester(Submission submission) {
-        this.submission = submission;
-        this.allowedPackages = null;
-    }
 
 	public static Set<String> getAllRequiredFiles(Class<? extends Tester> type) {
 		Set<String> files = new HashSet<>();
@@ -403,7 +434,7 @@ public class Tester extends Reflector {
 		return files;
 	}
 
-	public Map<Test, List<Result>> getResults() {
+	public Map<Test, Set<Result>> getResults() {
 		return results;
 	}
 
@@ -412,16 +443,29 @@ public class Tester extends Reflector {
 	}
 
 	protected void log(Result message) {
+        if (silent)
+            return;
+
 		if (!results.containsKey(currentTest))
-			results.put(currentTest, new ArrayList<>());
+			results.put(currentTest, new HashSet<>());
 		results.get(currentTest).add(message);
 	}
 
 	private void log(MethodCall call) {
+        if (silent)
+            return;
+
 		if (!invocations.containsKey(currentTest))
 			invocations.put(currentTest, new ArrayList<>());
 		invocations.get(currentTest).add(call);
 	}
+
+    protected <T> T quietly(Callable<T> block) throws Exception {
+        silent = true;
+        T result = block.call();
+        silent = false;
+        return result;
+    }
 
 	protected ObjectInstantiation instantiate(Class<?> type, Class<?>[] parameterTypes, Object... initArgs) throws ManualFailureException {
 		try {
@@ -447,44 +491,58 @@ public class Tester extends Reflector {
 	 * @return The compiled class stored in the specified .java file.
 	 */
 	protected Class<?> getClass(String javaFile) {
-		if (!compiledTypes.containsKey(javaFile) && !invalidClassNames.contains(javaFile)) {
+        if (!compiledTypes.containsKey(javaFile) && !invalidClassNames.contains(javaFile)) {
             SourceLookup.Result match = SourceLookup.lookup(submission.getDirectory(), javaFile, 0.8);
 
-			if (match.get().isEmpty()) {
-				invalidClassNames.add(javaFile);
-				log(new MissingFileError(null, submission.getDirectory(), javaFile));
-				return null;
-			}
+            if (match.get().isEmpty()) {
+                invalidClassNames.add(javaFile);
+                log(new MissingFileError(null, submission.getDirectory(), javaFile));
+                return null;
+            }
             File source = match.get().get();
 
-			if (match instanceof SourceLookup.FoundWithSimilarName similar)
-				log(new IncorrectFileNameError(null, javaFile, similar.actual()));
-			else if (match instanceof SourceLookup.FoundWithFileAndClassNameMismatch mismatch)
+            if (match instanceof SourceLookup.FoundWithSimilarName similar)
+                log(new IncorrectFileNameError(null, javaFile, similar.actual()));
+            else if (match instanceof SourceLookup.FoundWithFileAndClassNameMismatch mismatch)
                 log(new FileAndClassNameMismatchError(null, javaFile, mismatch.actual(), mismatch.clazz()));
 
             File fixed = Path.of(source.getParentFile().getPath(), javaFile).toFile();
             if (!source.getName().equals(javaFile)) {
+                try {
+                    java.nio.file.Path ren = Source.renamePrimaryType(source, FilenameUtils.getBaseName(javaFile));
+                    if (ren != null)
+                        source = ren.toFile();
+                } catch (IOException e) {
+                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile);
+                }
                 if (source.renameTo(fixed)) source = fixed;
-                else Console.warning("Failed to rename " + source.getPath() + ", which does not match " + javaFile);
+                else
+                    Console.warning("Failed to rename file " + source.getPath() + ", which does not match " + javaFile);
             }
 
-			try {
-				Class<?> loaded = ClassLoader.load(source, allowedPackages);
-				if (loaded == null) {
-					invalidClassNames.add(javaFile);
-					return null;
-				}
-				compiledTypes.put(javaFile, loaded);
-				return loaded;
-			}
-			catch (ClassLoadingException ex) { log(new ClassLoadingError(null, source, ex)); }
-			catch (CompilationException ex) { log(new CompilationError(null, source, ex)); }
-			catch (IOException ignored) { }
+            try {
+                String[] allowedPackages = AllowedPackages.DEFAULT;
+                if (this.getClass().isAnnotationPresent(AllowedPackages.class))
+                    allowedPackages = this.getClass().getAnnotation(AllowedPackages.class).value();
 
-			invalidClassNames.add(javaFile);
-			return null;
-		}
-		return compiledTypes.get(javaFile);
+                Class<?> loaded = ClassLoader.load(source, allowedPackages);
+                if (loaded == null) {
+                    invalidClassNames.add(javaFile);
+                    return null;
+                }
+                compiledTypes.put(javaFile, loaded);
+                return loaded;
+            } catch (ClassLoadingException ex) {
+                log(new ClassLoadingError(null, source, ex));
+            } catch (CompilationException ex) {
+                log(new CompilationError(null, source, ex));
+            } catch (IOException ignored) {
+            }
+
+            invalidClassNames.add(javaFile);
+            return null;
+        }
+        return compiledTypes.get(javaFile);
 	}
 
 	/**
@@ -493,7 +551,7 @@ public class Tester extends Reflector {
      * @param returnType The method's return type.
 	 * @param name The method name to find.
 	 * @param parameterTypes The method's parameter types.
-	 * @return The first method found which equals the name, ignoring case.
+	 * @return The first method found which matches the provided signature.
 	 * @throws NoSuchMethodException If no matching method is found.
 	 */
 	protected Method findMethod(Class<?> type, Class<?> returnType, String name, Class<?>... parameterTypes) throws NoSuchMethodException {
@@ -516,18 +574,24 @@ public class Tester extends Reflector {
 	}
 
 	/**
-	 * Invokes a method on a given object and returns the result. Logs any method exceptions.
+	 * Invokes a method on a given object and returns the result. Logs the call and any thrown exceptions.
 	 * @param method The method to invoke.
 	 * @param object The object to invoke the method on.
 	 * @param args The arguments to pass to the method call.
-	 * @return The return value of the method invocation, as a general Java object.
 	 */
 	protected MethodCall invoke(Method method, Object object, Object... args) {
 		return new MethodCall(method, object, args);
 	}
 
-    protected AsymptoticRuntime asymptotic(Object caller, Method method, Function<Long, Object[]> arguments) {
-        return new AsymptoticRuntime(caller, method, arguments);
+    /**
+     * Prepares a method for asymptotic runtime complexity analysis.
+     * @param description Textual description of what will be benchmarked.
+     * @param caller Function returning the method's calling object for a given input size N.
+     * @param action Action which will be benchmarked. This action takes two inputs: the method's calling object for
+     *               a given input size N, and that number N.
+     */
+    protected AsymptoticRuntime asymptotic(String description, ThrowingFunction<Long, Object> caller, ThrowingBiConsumer<Object, Long> action) {
+        return new AsymptoticRuntime(description, caller, action);
     }
 
 	/**
@@ -551,10 +615,8 @@ public class Tester extends Reflector {
 		PrecompileIfPresent precompile = this.getClass().getAnnotation(PrecompileIfPresent.class);
 		if (precompile != null) {
 			for (String precomp : precompile.value()) {
-				if (Files.findDescendant(submission.getDirectory(), precomp) != null) {
-					//System.out.println("[" + submission.getName() + "]: Precompiling additional required class " + precomp);
+				if (Files.findDescendant(submission.getDirectory(), precomp) != null)
 					getClass(precomp);
-				}
 			}
 		}
 
@@ -568,7 +630,7 @@ public class Tester extends Reflector {
 			// Run the test method and collect results
 			currentTest = test.getAnnotation(Test.class);
 			invocations.putIfAbsent(currentTest, new ArrayList<>());
-			results.putIfAbsent(currentTest, new ArrayList<>());
+			results.putIfAbsent(currentTest, new HashSet<>());
 
 			// Compile required classes beforehand
 			Require required = test.getAnnotation(Require.class);
@@ -676,7 +738,7 @@ public class Tester extends Reflector {
 	public double grade() {
 		double grade = 0.0;
 		for (Test test : results.keySet()) {
-			List<Result> res = results.get(test);
+			Set<Result> res = results.get(test);
 			int correct = Extensions.countIf(res, Result::passed);
 			int total = res.size();
 			if (total > 0) {

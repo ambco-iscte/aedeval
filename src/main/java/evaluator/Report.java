@@ -6,12 +6,12 @@ import evaluator.annotations.Test;
 import evaluator.messages.Result;
 import extensions.DisjointSet;
 
-import java.io.*;
+import java.io.Serializable;
 import java.util.*;
 
 public class Report implements Iterable<Report.Entry>, Serializable {
 
-    public record Entry(Submission submission, Map<Test, List<Result>> results, double grade) {
+    public record Entry(Submission submission, Map<Test, Set<Result>> results, double grade) {
 
         public Map<String, Integer> getErrorCountPerCode() {
                 Map<String, Integer> map = new HashMap<>();
@@ -39,7 +39,7 @@ public class Report implements Iterable<Report.Entry>, Serializable {
                 List<String> list = new ArrayList<>();
                 for (Test test : results.keySet()) {
                     for (Result result : results.get(test)) {
-                        if (!result.passed()) {
+                        if (!result.passed() || result.getClass().isAnnotationPresent(Result.AlwaysShowInReport.class)) {
                             if (result.getTest() == null)
                                 list.add(result.getMessage());
                             else
@@ -80,7 +80,7 @@ public class Report implements Iterable<Report.Entry>, Serializable {
         setPlagiarismAnalysis(plagiarismAnalysis);
     }
 
-    void add(Submission submission, Map<Test, List<Result>> results, double grade) {
+    void add(Submission submission, Map<Test, Set<Result>> results, double grade) {
         entries.add(new Entry(submission, results, grade));
     }
 

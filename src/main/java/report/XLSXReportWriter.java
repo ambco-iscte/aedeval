@@ -4,7 +4,6 @@ import evaluator.Report;
 import evaluator.Submission;
 import evaluator.annotations.Test;
 import evaluator.messages.Result;
-import extensions.Console;
 import extensions.Extensions;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -29,7 +28,7 @@ public abstract class XLSXReportWriter {
         REGULAR, HEADER, WARNING
     }
 
-    private static void createRow(Sheet sheet, int index, FontStyle fontStyle, Object... values) {
+    private static void createRow(Sheet sheet, int index, FontStyle fontStyle, Object[] values) {
         Row row = sheet.createRow(index);
         CellStyle style = sheet.getWorkbook().createCellStyle();
         for (int i = 0; i < values.length; i++) {
@@ -181,12 +180,15 @@ public abstract class XLSXReportWriter {
      * @param path Target file path (usually ending in ".xlsx").
      * @throws IOException If an IO exception occurs when writing the target file.
      */
-    public void write(Report report, Path path) throws IOException {
+    public void write(Report report, Path path, String... columns) throws IOException {
+        if (columns.length != 4)
+            throw new IllegalArgumentException("XLSX Report needs 4 columns, but you passed " + columns.length + "!");
+
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet results = workbook.createSheet("Results");
             int rowCount = 0;
-            createRow(results, rowCount++, FontStyle.HEADER, "Student ID", "Name", "Messages", "Grade");
-            createRow(results, rowCount++, FontStyle.HEADER, "", "", "", "");
+            createRow(results, rowCount++, FontStyle.HEADER, columns);
+            createRow(results, rowCount++, FontStyle.HEADER, new String[] { "", "", "", "" });
 
             Map<String, Integer> grades = new LinkedHashMap<>();
             for (int i = 0; i <= 20; i++)
@@ -203,7 +205,7 @@ public abstract class XLSXReportWriter {
                 }
 
                 // Collect count of errors per test
-                for (Map.Entry<Test, List<Result>> t : entry.results().entrySet()) {
+                for (Map.Entry<Test, Set<Result>> t : entry.results().entrySet()) {
                     String description = t.getKey().description();
                     int errors = (int) t.getValue().stream().filter(result -> !result.passed()).count();
                     errorsPerTest.put(description, errorsPerTest.getOrDefault(description, 0) + errors);

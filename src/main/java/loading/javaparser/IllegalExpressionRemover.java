@@ -1,5 +1,7 @@
 package loading.javaparser;
 
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
@@ -7,76 +9,115 @@ import com.github.javaparser.ast.visitor.Visitable;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
 import loading.Source;
-import static extensions.Extensions.tryOrElse;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+
 import static extensions.Extensions.contains;
+import static extensions.Extensions.tryOrElse;
 
 public class IllegalExpressionRemover extends ModifierVisitor<Void> {
 
+    private final TypeDeclaration<?> self;
     private final String[] allowedPackages;
+    private final Map<String, HashSet<Node>> prohibitedUsages = new HashMap<>();
 
-    public IllegalExpressionRemover(String[] allowedPackages) {
+    public IllegalExpressionRemover(TypeDeclaration<?> self, String[] allowedPackages) {
+        this.self = self;
         this.allowedPackages = allowedPackages;
     }
 
-    private boolean isProhibitedPackage(String name) {
-        return name != null && !name.isEmpty() && !contains(allowedPackages, name);
+    public Map<String, Node[]> getProhibitedUsages() {
+        Map<String, Node[]> usages = new HashMap<>();
+        for (String pkg : prohibitedUsages.keySet()) {
+            usages.put(pkg, prohibitedUsages.get(pkg).toArray(new Node[0]));
+        }
+        return usages;
     }
 
-    private boolean isProhibitedType(ResolvedTypeDeclaration type) {
-        return type != null && isProhibitedPackage(type.getPackageName());
+    private boolean isProhibitedPackage(Node location, String name) {
+        boolean prohibited = name != null && !name.isEmpty() && !contains(allowedPackages, name);
+        if (prohibited) {
+            prohibitedUsages.putIfAbsent(name, new HashSet<>());
+            prohibitedUsages.get(name).add(location);
+        }
+        return prohibited;
     }
 
-    private boolean isProhibitedType(ResolvedType type) {
+    private boolean isProhibitedType(Node location, ResolvedTypeDeclaration type) {
+        return type != null && tryOrElse(() -> self != null && self.resolve() != type, true) && isProhibitedPackage(location, type.getPackageName());
+    }
+
+    private boolean isProhibitedType(Node location, ResolvedType type) {
         if (type.isArray())
-            return isProhibitedType(type.asArrayType().getComponentType());
+            return isProhibitedType(location, type.asArrayType().getComponentType());
         if (type.isReferenceType())
-            return isProhibitedType(type.asReferenceType().getTypeDeclaration().orElse(null));
+            return isProhibitedType(location, type.asReferenceType().getTypeDeclaration().orElse(null));
         return false;
     }
 
-    private boolean isProhibitedField(FieldAccessExpr field) {
-        return tryOrElse(() -> isProhibitedType(field.resolve().asField().declaringType()), false);
+    private boolean isProhibitedType(Node location, Type type) {
+        return tryOrElse(() -> isProhibitedType(location, type.resolve()), false);
     }
 
-    private boolean isProhibitedType(Type type) {
-        return tryOrElse(() -> isProhibitedType(type.resolve()), false);
+    private boolean isProhibitedField(FieldAccessExpr field) {
+        if (Source.isCallArgument(field))
+            return false;
+        return tryOrElse(() -> isProhibitedType(field, field.resolve().asField().declaringType()), false);
     }
 
     private boolean isProhibitedTypeName(NameExpr name) {
-        return tryOrElse(() -> isProhibitedType(name.calculateResolvedType()), false);
+        if (Source.isCallArgument(name))
+            return false;
+        return tryOrElse(() -> isProhibitedType(name, name.calculateResolvedType()), false);
     }
 
-    private boolean isProhibitedExpression(Expression expression) {
-        if (expression == null)
+    private boolean isProhibitedExpression(Node location, Expression expression) {
+        if (expression == null || Source.isCallArgument(expression))
             return false;
         return
-            (expression.isFieldAccessExpr() && isProhibitedField(expression.asFieldAccessExpr())) ||
-            (expression.isNameExpr() && isProhibitedTypeName(expression.asNameExpr()));
+            // tryOrElse(() -> isProhibitedType(location, expression.calculateResolvedType()), false) ||
+            (expression.isMethodCallExpr() && isProhibitedMethodCall(location, expression.asMethodCallExpr())) ||
+            (expression.isObjectCreationExpr() && isProhibitedConstructorCall(location, expression.asObjectCreationExpr()));
+
+    }
+
+    private boolean isProhibitedMethodCall(Node location, MethodCallExpr n) {
+        if (isProhibitedExpression(location, n.getScope().orElse(null)))
+            return true;
+        else {
+            for (Expression argument : n.getArguments()) {
+                if (isProhibitedExpression(location, argument))
+                    return true;
+            }
+        }
+        return tryOrElse(() -> isProhibitedType(location, n.calculateResolvedType()), false);
+    }
+
+    private boolean isProhibitedConstructorCall(Node location, ObjectCreationExpr n) {
+        if (isProhibitedExpression(location, n.getScope().orElse(null)))
+            return true;
+        else {
+            for (Expression argument : n.getArguments()) {
+                if (isProhibitedExpression(location, argument))
+                    return true;
+            }
+        }
+        return isProhibitedType(location, n.getType());
     }
 
     @Override
     public Visitable visit(MethodCallExpr n, Void arg) {
-        if (isProhibitedExpression(n.getScope().orElse(null)))
+        if (isProhibitedMethodCall(n, n) && !Source.isCallArgument(n))
             return Source.removed(n);
-        else {
-            for (Expression argument : n.getArguments()) {
-                if (isProhibitedExpression(argument))
-                    return Source.removed(n);
-            }
-        }
         return super.visit(n, arg);
     }
 
     @Override
     public Visitable visit(ObjectCreationExpr n, Void arg) {
-        if (isProhibitedType(n.getType()) || isProhibitedExpression(n.getScope().orElse(null)))
+        if (isProhibitedConstructorCall(n, n) && !Source.isCallArgument(n))
             return Source.removed(n);
-        else {
-            for (Expression argument : n.getArguments()) {
-                if (isProhibitedExpression(argument))
-                    return Source.removed(n);
-            }
-        }
         return super.visit(n, arg);
     }
 

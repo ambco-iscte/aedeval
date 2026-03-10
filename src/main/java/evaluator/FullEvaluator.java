@@ -1,22 +1,24 @@
 package evaluator;
 
+import de.jplag.JPlag;
+import de.jplag.JPlagResult;
+import de.jplag.exceptions.ExitException;
+import de.jplag.java.JavaLanguage;
+import de.jplag.options.JPlagOptions;
+import extensions.Extensions;
+import extensions.Files;
+import extensions.out.Console;
+import extensions.out.ProgressBar;
+import loading.ClassLoader;
+import org.apache.commons.io.FilenameUtils;
+import org.jetbrains.annotations.NotNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
-import java.util.List;
 import java.util.concurrent.*;
-
-import de.jplag.JPlag;
-import de.jplag.JPlagResult;
-import de.jplag.exceptions.ExitException;
-import de.jplag.options.JPlagOptions;
-import de.jplag.java.JavaLanguage;
-
-import extensions.*;
-import loading.ClassLoader;
-import org.apache.commons.io.FilenameUtils;
 
 /**
  * Class used for testing a batch of source code files and collecting all results.
@@ -29,7 +31,7 @@ public class FullEvaluator<T extends Tester> {
 
     private static final String BACKUP_FILE_EXTENSION = "backup";
 
-	private ExecutorService THREAD_POOL;
+	private ExecutorCompletionService<Tester> EXECUTOR;
 
 	private final Class<T> tester;
 
@@ -39,25 +41,14 @@ public class FullEvaluator<T extends Tester> {
 
 	private final String description;
 
-    private final String[] allowedPackages;
-
 	private File referenceCodeFolder;
 
-	public FullEvaluator(String root, String description, Class<T> tester, String[] allowedPackages) {
+	public FullEvaluator(String root, String description, Class<T> tester) {
 		this.root = root;
 		this.description = description;
 		this.tester = tester;
 		this.expected = Tester.getAllRequiredFiles(tester).stream().toList();
-        this.allowedPackages = allowedPackages;
 	}
-
-    public FullEvaluator(String root, String description, Class<T> tester) {
-        this.root = root;
-        this.description = description;
-        this.tester = tester;
-        this.expected = Tester.getAllRequiredFiles(tester).stream().toList();
-        this.allowedPackages = null;
-    }
 
 	public FullEvaluator<T> withReference(File folder) {
 		this.referenceCodeFolder = folder;
@@ -69,20 +60,20 @@ public class FullEvaluator<T extends Tester> {
      * Execution is asynchronous with a fixed number of threads.
      * @param threads Number of parallel threads to use.
 	 */
-	public Optional<Report> run(int threads) {
+	public @NotNull Report run(int threads) {
+        // Set thread pool
+        EXECUTOR = new ExecutorCompletionService<>(Executors.newFixedThreadPool(threads));
+
+        // Validate Submitted Files
+        Map<File, Submission> submissions = validateSubmissions();
+        System.out.println();
+
+        // Backup Student Submission Files
+        backupSubmissionFiles(submissions);
+
+        Report report = new Report(description);
+
 		try {
-			// Set thread pool
-			THREAD_POOL = Executors.newFixedThreadPool(threads);
-
-			// Validate Submitted Files
-			Map<File, Submission> submissions = validateSubmissions();
-			System.out.println();
-
-            // Backup Student Submission Files
-            backupSubmissionFiles(submissions);
-
-			Report report = new Report(description);
-
 			// Run Plagiarism Checker (before evaluator cleans code files!)
 			if (submissions.size() >= 2)
 				report.setPlagiarismAnalysis(checkPlagiarism());
@@ -90,22 +81,21 @@ public class FullEvaluator<T extends Tester> {
 			// Evaluate Student Submissions
 			evaluateAllFiles(submissions, report);
 			ClassLoader.flush();
-
-			// Restore Student Code Files from Backups
-			restoreSubmissionCodeFiles(submissions);
-
-			return Optional.of(report);
-		} catch (ExecutionException | InterruptedException | IOException e) {
+		} catch (Exception e) {
 			Console.error(e.getClass().getCanonicalName() + " thrown when running full evaluation: " + e.getMessage());
-            return Optional.empty();
 		}
+
+        restoreSubmissionCodeFiles(submissions);
+        try { ClassLoader.flush(); } catch (IOException ignored) { }
+
+        return report;
 	}
 
     /**
      * Validates all files and evaluates all source code files present in the parent directory.
-     * Execution is synchronous. This is equivalent to calling {@link #run(int)} with <code>threads = 1</code>.
+     * Execution is synchronous. This is equivalent to calling {@link #run(int)} with {@code threads = 1}.
      */
-    public Optional<Report> run() {
+    public Report run() {
         return run(1);
     }
 
@@ -140,12 +130,16 @@ public class FullEvaluator<T extends Tester> {
         for (File submissionDirectory : submissions.keySet()) {
             for (File file : Files.walk(submissionDirectory)) {
                 if (file.isFile()) {
-                    File dir = file.getParentFile();
-                    Path backup = Path.of(dir.toString(), file.getName() + "." + BACKUP_FILE_EXTENSION);
-                    try {
-                        java.nio.file.Files.copy(file.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException e) {
-                        Console.warning("Could not backup file " + file.getPath() + ": " + e.getMessage());
+                    if (FilenameUtils.isExtension(file.getName(), BACKUP_FILE_EXTENSION))
+                        file.delete();
+                    else {
+                        File dir = file.getParentFile();
+                        Path backup = Path.of(dir.toString(), file.getName() + "." + BACKUP_FILE_EXTENSION);
+                        try {
+                            java.nio.file.Files.copy(file.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);
+                        } catch (IOException e) {
+                            Console.warning("Could not backup file " + file.getPath() + ": " + e.getMessage());
+                        }
                     }
                 }
             }
@@ -226,23 +220,22 @@ public class FullEvaluator<T extends Tester> {
 		System.out.println("Evaluating All Submissions...");
 		long start = System.currentTimeMillis();
 
-		// Progress bar! Fancy :)
-		ProgressBar progress = new ProgressBar(2 * submissions.size(), 175, "[" + description + "] Evaluating...");
+		ProgressBar progress = new ProgressBar(submissions.size(), 150, "[" + description + "] Evaluating...");
 
-		// Analyse all submissions in parallel and wait for everything to be finished
-		List<Future<Tester>> analysed = THREAD_POOL.invokeAll(
-            getEvaluationTasks(submissions, tester, allowedPackages, progress),
-            submissions.size() * SUBMISSION_TIMEOUT_MINUTES,
-            TimeUnit.MINUTES
-		);
+        List<Callable<Tester>> tasks = getEvaluationTasks(submissions, tester);
+        for (Callable<Tester> task : tasks) {
+            EXECUTOR.submit(task);
+        }
 
-		for (Future<Tester> future : analysed) {
+		for (int i = 0; i < tasks.size(); i++) {
+            Future<Tester> future = EXECUTOR.take(); // Process testers as they finish (waits for a task to finish)
 			Tester test = future.get();
 			Submission submission = test.getSubmission();
 
 			double grade = test.grade();
 			report.add(submission, test.getResults(), grade);
-			progress.step();
+            progress.step();
+            System.gc();
 		}
 
 		long end = System.currentTimeMillis();
@@ -255,11 +248,11 @@ public class FullEvaluator<T extends Tester> {
 	 * @param tester The {@link Tester} class to use for submission testing and validation.
 	 * @return A list of all callable tasks. See also: {@link ExecutorService#invokeAll(Collection)}.
 	 */
-	private static List<Callable<Tester>> getEvaluationTasks(Map<File, Submission> submissions, Class<? extends Tester> tester, String[] allowedPackages, ProgressBar progress) {
+	private static List<Callable<Tester>> getEvaluationTasks(Map<File, Submission> submissions, Class<? extends Tester> tester) {
 		List<Callable<Tester>> tasks = new ArrayList<>();
 		for (File subDir : submissions.keySet()) {
 			if (subDir.isDirectory()) {
-				tasks.add(new TesterDispatcher(submissions.get(subDir), tester, allowedPackages, progress));
+				tasks.add(new TesterDispatcher(submissions.get(subDir), tester));
 			}
 		}
 		return tasks;

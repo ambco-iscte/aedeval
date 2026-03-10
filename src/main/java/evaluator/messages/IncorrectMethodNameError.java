@@ -1,6 +1,7 @@
 package evaluator.messages;
 
 import evaluator.annotations.Test;
+import extensions.Extensions;
 
 import java.lang.reflect.Method;
 
@@ -39,7 +40,17 @@ public class IncorrectMethodNameError extends Result {
 
     @Override
     public String getMessage() {
-        return String.format("Could not find method <%s.%s>, but found method with similar name: <%s>. " +
-                "Make sure you implement methods with the intended name!", type.getSimpleName(), expected, found.getName());
+        String[] expectedParamTypeNames = new String[found.getParameterCount()];
+        for (int i = 0; i < expectedParamTypeNames.length; i++)
+            expectedParamTypeNames[i] = found.getParameterTypes()[i].getName();
+        String expectedSignature = "%s %s.%s(%s)".formatted(
+            found.getReturnType().getName(),
+            type.getName(),
+            expected,
+            Extensions.joinToString(expectedParamTypeNames)
+        );
+
+        return String.format("Could not find method <%s>, but found method with similar name: <%s>. " +
+                "Make sure you implement methods with the intended name!", expectedSignature, Extensions.signature(found));
     }
 }

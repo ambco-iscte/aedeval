@@ -8,13 +8,31 @@ import java.util.List;
 
 public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
 
-    private record Signature(int expCoeff, int expPow, int poly, int log, int loglog) implements Comparable<Signature> {
+    private record Signature(int expCoeff, int expPow, int poly, int log, int iteratedLog) implements Comparable<Signature> {
 
         private static final String NO_NEG_EXP = "Growth order signatures cannot have negative exponents!";
 
-        Signature normalized() {
+        public static double distance(Signature s1, Signature s2) {
+            if (s1 == null || s2 == null)
+                throw new IllegalArgumentException("");
+            double dist = 0.0;
+
+            int[] powers1 = new int[] { s1.iteratedLog, s1.log, s1.poly, s1.expCoeff, s1.expPow };
+            int[] powers2 = new int[] { s2.iteratedLog, s2.log, s2.poly, s2.expCoeff, s2.expPow };
+
+            for (int i = 0; i < powers1.length; i++)
+                dist += (1 << i) * Math.abs(powers1[i] - powers2[i]);
+
+            return dist;
+        }
+
+        public static double similarity(Signature s1, Signature s2) {
+            return 1 / (1 + distance(s1, s2));
+        }
+
+        private Signature normalized() {
             if (expCoeff == 0 || expPow == 0)
-                return new Signature(0, 0, poly, log, loglog);
+                return new Signature(0, 0, poly, log, iteratedLog);
             return this;
         }
 
@@ -35,10 +53,10 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
                 return Integer.compare(log, o.log);
 
             // Compare LogLog Exponents
-            return Integer.compare(loglog, o.loglog);
+            return Integer.compare(iteratedLog, o.iteratedLog);
         }
 
-        public Signature times(Signature other) {
+        private Signature times(Signature other) {
             int a0, exp0;
             if (expPow == other.expPow) {
                 exp0 = expPow;
@@ -50,10 +68,10 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
                 exp0 = other.expPow;
                 a0 = other.expCoeff;
             }
-            return new Signature(a0, exp0, poly + other.poly, log + other.log, loglog + other.loglog).normalized();
+            return new Signature(a0, exp0, poly + other.poly, log + other.log, iteratedLog + other.iteratedLog).normalized();
         }
 
-        public Signature div(Signature other) {
+        private Signature div(Signature other) {
             int a0 = 0, exp0 = 0;
             if (expPow != 0 || other.expPow != 0) {
                 if (expPow == other.expPow) {
@@ -70,7 +88,7 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
 
             int poly0 = poly - other.poly;
             int log0 = log - other.log;
-            int loglog0 = loglog - other.loglog;
+            int loglog0 = iteratedLog - other.iteratedLog;
 
             if (poly0 < 0 || log0 < 0 || loglog0 < 0)
                 throw new IllegalArgumentException(NO_NEG_EXP);
@@ -80,7 +98,7 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
 
         @Override
         public @NotNull String toString() {
-            return "exp(%d * N^%d) * N^%d * (logN)^%d * (loglogN)^%d".formatted(expCoeff, expPow, poly, log, loglog);
+            return "exp(%d * N^%d) * N^%d * (logN)^%d * (loglogN)^%d".formatted(expCoeff, expPow, poly, log, iteratedLog);
         }
     }
 
@@ -90,13 +108,17 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
         this.signature = signature.normalized();
     }
 
-    private OrderOfGrowth(int a, int exp, int poly, int log, int loglog) {
-        this.signature = new Signature(a, exp, poly, log, loglog).normalized();
+    private OrderOfGrowth(int a, int exp, int poly, int log, int iteratedLog) {
+        this.signature = new Signature(a, exp, poly, log, iteratedLog).normalized();
     }
 
     @Override
     public int compareTo(@NonNull OrderOfGrowth o) {
         return signature.compareTo(o.signature);
+    }
+
+    public static double similarity(OrderOfGrowth o1, OrderOfGrowth o2) {
+        return Signature.similarity(o1.signature, o2.signature);
     }
 
     abstract double predict(OrderOfGrowthEstimator.Sample sample);
@@ -113,15 +135,15 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
         }
     };
 
-    public static final OrderOfGrowth LOGLOG = new OrderOfGrowth(0, 0, 0, 0, 1) {
+    public static final OrderOfGrowth LOGSTAR = new OrderOfGrowth(0, 0, 0, 0, 1) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
-            return Math.log(Math.log(sample.n()));
+            return Extensions.iteratedLogarithm(sample.n());
         }
 
         @Override
         public String toString() {
-            return "log(log(N))";
+            return "log*(N)";
         }
     };
 
@@ -149,6 +171,18 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
         }
     };
 
+    public static final OrderOfGrowth LINEARLOGSTAR = new OrderOfGrowth(0, 0, 1, 0, 1) {
+        @Override
+        double predict(OrderOfGrowthEstimator.Sample sample) {
+            return sample.n() * Extensions.iteratedLogarithm(sample.n());
+        }
+
+        @Override
+        public String toString() {
+            return "N log*(N)";
+        }
+    };
+
     public static final OrderOfGrowth LINEARITHMIC = new OrderOfGrowth(0, 0, 1, 1, 0) {
         @Override
         double predict(OrderOfGrowthEstimator.Sample sample) {
@@ -158,7 +192,7 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
 
         @Override
         public String toString() {
-            return "N * log(N)";
+            return "N log(N)";
         }
     };
 
@@ -222,7 +256,7 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
 
         @Override
         public String toString() {
-            return "expPow(N)";
+            return "exp(N)";
         }
     };
 
@@ -300,7 +334,7 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
     };
 
     public static final OrderOfGrowth[] COMMON = new OrderOfGrowth[] {
-        CONSTANT, LOGLOG, LOGARITHMIC, LINEAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC, QUINTIC, EXPONENTIAL,
+        CONSTANT, LOGSTAR, LOGARITHMIC, LINEAR, LINEARLOGSTAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC, QUINTIC, EXPONENTIAL,
         QUADRATIC.times(LOGARITHMIC), CUBIC.times(LOGARITHMIC), QUARTIC.times(LOGARITHMIC), QUINTIC.times(LOGARITHMIC)
     };
 }

@@ -9,6 +9,12 @@ import java.util.function.Predicate;
 
 public class Extensions {
 
+    public static double iteratedLogarithm(double n) {
+        if (n <= 1)
+            return 0;
+        return 1 + iteratedLogarithm(Math.log(n));
+    }
+
     public static <T> T tryOrElse(Callable<T> block, T defaultValue) {
         try {
             return block.call();
@@ -373,5 +379,17 @@ public class Extensions {
         }
         s.append(")");
         return s.toString();
+    }
+
+    public static <T> String signature(Constructor<T> constructor) {
+        StringBuilder s = new StringBuilder("(");
+        if (constructor.getParameterCount() > 0) {
+            Class<?>[] parameterTypes = constructor.getParameterTypes();
+            s.append(parameterTypes[0].getSimpleName());
+            for (int i = 1; i < parameterTypes.length; i++)
+                s.append(", ").append(parameterTypes[i].getSimpleName());
+        }
+        s.append(")");
+        return "new " +  constructor.getDeclaringClass().getSimpleName() +  s;
     }
 }

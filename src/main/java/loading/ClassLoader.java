@@ -1,18 +1,19 @@
 package loading;
 
-import extensions.Console;
+import com.github.javaparser.ParseProblemException;
 import extensions.Extensions;
 import extensions.Files;
+import extensions.out.Console;
+import loading.exceptions.CannotParseCompactClassException;
 import loading.exceptions.ClassLoadingException;
 import loading.exceptions.CompilationException;
+import loading.exceptions.PackageNotAllowedException;
 import org.apache.commons.io.FilenameUtils;
 
 import javax.tools.*;
 import java.io.*;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,7 +49,7 @@ public class ClassLoader {
      * @param className The class name.
      * @return The compiled .class file.
      */
-    private static File compile(File directory, String className, List<String> options, String[] allowedPackages) throws FileNotFoundException, CompilationException {
+    private static File compile(File directory, String className, List<String> options, String[] allowedPackages) throws FileNotFoundException, CompilationException, CannotParseCompactClassException {
         File javaFile = Files.findDescendant(directory, className);
         if (javaFile == null) {
             Console.error("File not found: " + directory.getPath() + "/" + className);
@@ -71,7 +72,12 @@ public class ClassLoader {
         // Clean source code using JavaParser :)
         try {
             Source.clean(javaFile, allowedPackages);
-        } catch (Exception ignored) { }
+        } catch (PackageNotAllowedException e) {
+            throw new CompilationException(e.getMessage());
+        } catch (ParseProblemException ignored) {
+        } catch (Exception e) {
+            throw new CompilationException("Unexpected " + e.getClass().getCanonicalName() + " when cleaning source with JavaParser:\n" + Extensions.joinToString(System.lineSeparator(), e.getStackTrace()));
+        }
 
         // Creates a Java compiler
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
@@ -100,11 +106,11 @@ public class ClassLoader {
      * @param options The file encoding options.
      */
     private static void compile(
-            File javaFile,
-            JavaCompiler compiler,
-            DiagnosticCollector<JavaFileObject> collector,
-            ByteArrayOutputStream errorStream,
-            List<String> options
+        File javaFile,
+        JavaCompiler compiler,
+        DiagnosticCollector<JavaFileObject> collector,
+        ByteArrayOutputStream errorStream,
+        List<String> options
     ) throws CompilationException {
         // Compile .java file
         StandardJavaFileManager fileManager = compiler.getStandardFileManager(collector, null, null);
@@ -135,7 +141,12 @@ public class ClassLoader {
      */
     public static Class<?> load(File javaFile, String[] allowedPackages) throws IOException, ClassLoadingException, CompilationException {
         File dir = javaFile.getParentFile();
+
         File compiled = compile(dir, javaFile.getName(), List.of("-classpath", dir.getPath()), allowedPackages);
+        if (CannotParseCompactClassException.affects(javaFile)) {
+            Console.warning("Check source file for JP compact class bug: " + javaFile.getPath());
+        }
+
         try {
             // Create a ClassLoader instance for the directory the .java file is stored in
             URL[] classURLs = new URL[] { dir.toURI().toURL() };
@@ -143,7 +154,7 @@ public class ClassLoader {
             classLoader.setDefaultAssertionStatus(true);
             loaders.add(classLoader);
             return classLoader.loadClass(Files.getNameWithoutExtension(compiled));
-        } catch (IllegalArgumentException | ClassNotFoundException | IOException | NoClassDefFoundError e) {
+        } catch (Exception e) {
             throw new ClassLoadingException(javaFile, e);
         }
     }

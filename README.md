@@ -347,8 +347,9 @@ evaluate might make the evaluation take a while!
 Finally, to save the report as a neat Excel table, you can do: 👇
 ```java
 StaticXLSXReportWriter.write(
-    report,                             // Report to be written.
-    Path.of("Submission1Report.xlsx"),  // Target file path. 
+    report,                                     // Report to be written.
+    Path.of("Submission1Report.xlsx"),          // Target file path. 
+    "Student ID", "Name", "Messages", "Grade"   // Column names
 );
 ```
 

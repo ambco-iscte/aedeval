@@ -1,8 +1,8 @@
-package extensions;
+package extensions.out;
 
 public class Console {
 
-    private enum ANSI {
+    public enum ANSI {
 
         // Reset
         RESET("\033[0m"),  // Text Reset
@@ -88,11 +88,11 @@ public class Console {
         }
     }
 
-    private static void println(String message, ANSI colour) {
+    public static void println(String message, ANSI colour) {
         System.out.println(colour.getColourCode() + message + ANSI.RESET.getColourCode());
     }
 
-    public static void log(String message) {
+    public static void println(String message) {
         System.out.println(message);
     }
 

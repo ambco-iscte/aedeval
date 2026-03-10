@@ -2,7 +2,7 @@ package report;
 
 import com.google.gson.*;
 import evaluator.Report;
-import extensions.Console;
+import extensions.out.Console;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;

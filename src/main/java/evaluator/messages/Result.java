@@ -2,9 +2,19 @@ package evaluator.messages;
 
 import evaluator.annotations.Test;
 
+import java.lang.annotation.*;
 import java.util.Objects;
 
 public abstract class Result {
+
+    /**
+     * Annotating a Result class with this annotation ensures it is always presented in the
+     * resulting Report, even when the test case passed.
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    @Documented
+    public @interface AlwaysShowInReport { }
 
     private final static String FAILURE_ERROR_CODE = "Assertion Failed";
     private final static String SUCCESS_ERROR_CODE = "Success";
@@ -20,11 +30,8 @@ public abstract class Result {
     }
 
     public abstract String errorCode();
-
     public abstract boolean passed();
-
     public abstract String getMessage();
-
 
     @Override
     public String toString() {
@@ -97,5 +104,15 @@ public abstract class Result {
                 return message;
             }
         };
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj != null && obj.getClass() == getClass() && test == ((Result) obj).test && toString().equals(obj.toString());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getClass(), test, toString());
     }
 }

@@ -6,22 +6,51 @@ import org.jspecify.annotations.NonNull;
 
 import java.util.*;
 
-public abstract class OrderOfGrowthEstimator<T> {
+public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
 
-    public record Regression(OrderOfGrowth model, List<Sample> samples, OLSMultipleLinearRegression regression) {
+    public static class Regression {
+
+        private final OrderOfGrowth model;
+        private final List<Sample> samples;
+        private final OLSMultipleLinearRegression regression;
+        private final double maxPredicted;
+        private final double maxTime;
+
+        public Regression(OrderOfGrowth model, List<Sample> samples, OLSMultipleLinearRegression regression) {
+            this.model = model;
+            this.samples = samples;
+            this.regression = regression;
+
+            maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
+            maxTime = samples.stream().mapToDouble(Sample::time).max().orElse(1.0);
+        }
+
+        public OrderOfGrowth model() {
+            return model;
+        }
+
+        public List<Sample> samples() {
+            return samples;
+        }
+
+        public OLSMultipleLinearRegression regression() {
+            return regression;
+        }
 
         public record FTestResult(double statistic, double pValue) { }
 
+        /**
+         * Returns the AIC (Akaike Information Criterion) for the regression.
+         * @see <a href="https://en.wikipedia.org/wiki/Akaike_information_criterion">Akaike Information Criterion</a>
+         */
         public double AIC() {
             int n = samples.size();
             return n * Math.log(RSS() / n) + 4.0;
         }
 
-        public double BIC() {
-            int n = samples.size();
-            return n * Math.log(RSS() / n) + 2 * Math.log(n);
-        }
-
+        /**
+         * Calculates the regression's residual sum of squares (RSS).
+         */
         public double RSS() {
             return regression.calculateResidualSumOfSquares();
         }
@@ -31,13 +60,10 @@ public abstract class OrderOfGrowthEstimator<T> {
         }
 
         public double scalar() {
-            double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
             return maxPredicted * regression.estimateRegressionParameters()[1];
         }
 
         public double intercept() {
-            double maxTime = samples.stream().max(Comparator.comparing(Sample::time)).map(Sample::time).orElse(1.0);
-            double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
             return (maxTime / maxPredicted) * regression.estimateRegressionParameters()[0];
         }
 
@@ -58,23 +84,27 @@ public abstract class OrderOfGrowthEstimator<T> {
         public @NonNull String toString() {
             return String.format("%f + %f * (%s)", intercept(), scalar(), model);
         }
+
+        public String toStringWithoutIntercept() {
+            return String.format("%f * (%s)", scalar(), model);
+        }
     }
 
-    public record Fit(Regression regression, double confidence) { }
+    public record Fit(Regression best, Regression secondBest, double confidence, double ambiguity) { }
     public record Sample(long n, double time) { }
 
-    protected abstract T input(long n);
-    protected abstract void action(T input);
-    protected abstract long update(long n);
+    protected abstract T input(long n) throws E;
+    protected abstract void action(T input) throws E;
+    protected abstract long update(long n) throws E;
 
-    public Fit fit(long initial, int steps, int repeats) {
+    public Fit fit(long initial, int steps, int repeats) throws E {
         List<Sample> samples = new ArrayList<>();
 
         // JVM Warmup
-        for (long n = update(initial), i = 0; i < steps; n = update(n), i++)
+        for (long n = initial, i = 0; i < steps; n = update(n), i++)
             getElapsedTimeNanos(n);
 
-        for (long n = update(initial), i = 0; i < steps; n = update(n), i++) {
+        for (long n = initial, i = 0; i < steps; n = update(n), i++) {
             long sum = 0L;
             for (int j = 0; j < repeats; j++)
                 sum += getElapsedTimeNanos(n);
@@ -82,6 +112,23 @@ public abstract class OrderOfGrowthEstimator<T> {
         }
 
         return fit(samples, exponent(samples));
+    }
+
+    public double calculateEstimatedExponent(long initial, int steps, int repeats) throws E {
+        List<Sample> samples = new ArrayList<>();
+
+        // JVM Warmup
+        for (long n = initial, i = 0; i < steps; n = update(n), i++)
+            getElapsedTimeNanos(n);
+
+        for (long n = initial, i = 0; i < steps; n = update(n), i++) {
+            long sum = 0L;
+            for (int j = 0; j < repeats; j++)
+                sum += getElapsedTimeNanos(n);
+            samples.add(new Sample(n, (double) sum / repeats));
+        }
+
+        return exponent(samples);
     }
 
     private double exponent(List<Sample> samples) {
@@ -101,9 +148,9 @@ public abstract class OrderOfGrowthEstimator<T> {
     }
 
     private boolean plausible(OrderOfGrowth model, double exponent) {
-        if (model == OrderOfGrowth.CONSTANT || model == OrderOfGrowth.LOGLOG || model == OrderOfGrowth.LOGARITHMIC)
+        if (model == OrderOfGrowth.CONSTANT || model == OrderOfGrowth.LOGSTAR || model == OrderOfGrowth.LOGARITHMIC)
             return exponent < 0.6;
-        if (model == OrderOfGrowth.LINEAR || model == OrderOfGrowth.LINEARITHMIC)
+        if (model == OrderOfGrowth.LINEAR || model == OrderOfGrowth.LINEARLOGSTAR || model == OrderOfGrowth.LINEARITHMIC)
             return exponent >= 0.6 && exponent < 1.6;
         if (model == OrderOfGrowth.QUADRATIC)
             return exponent >= 1.6 && exponent < 2.6;
@@ -116,21 +163,23 @@ public abstract class OrderOfGrowthEstimator<T> {
         return true;
     }
 
-    private Fit fit(List<Sample> samples, double predictedExponent) {
+    private Fit fit(List<Sample> samples, double exponent) {
         List<Regression> result = new ArrayList<>();
         for (OrderOfGrowth model : OrderOfGrowth.COMMON) {
-            //if (plausible(model, predictedExponent))
             Regression fit = fit(model, samples);
             if (!Double.isNaN(fit.AIC()))
                 result.add(fit);
+           // if (plausible(model, exponent)) { }
         }
 
-        // Wagenmakers, EJ., Farrell, S. AIC model selection using Akaike weights.
-        // Psychonomic Bulletin & Review 11, 192–196 (2004). https://doi.org/10.3758/BF03206482
-        double smallestAIC = result.stream().min(Comparator.comparing(Regression::AIC)).orElse(result.getFirst()).AIC();
+        // https://en.wikipedia.org/wiki/Relative_likelihood#Relative_likelihood_of_models
+        double smallestAIC = result.stream().mapToDouble(Regression::AIC).min().orElse(0);
         double sumRelativeLikelihoods = result.stream().mapToDouble(regression ->
             Math.exp(-0.5 * (regression.AIC() - smallestAIC))
         ).sum();
+
+        // Wagenmakers, EJ., Farrell, S. AIC model selection using Akaike weights.
+        // Psychonomic Bulletin & Review 11, 192–196 (2004). https://doi.org/10.3758/BF03206482
         Map<Regression, Double> akaikeWeights = new HashMap<>();
         for (Regression model : result) {
             double relativeLikelihoodToBest = Math.exp(-0.5 * (model.AIC() - smallestAIC));
@@ -143,13 +192,17 @@ public abstract class OrderOfGrowthEstimator<T> {
 
         double wBest = akaikeWeights.get(best);
         double wSecond = akaikeWeights.get(secondBest);
-        double separationFromSecondBest = wBest > 0 ? (wBest - wSecond) / wBest : 0;
 
-        double pValueGate = 1.0 / (1 + Math.pow(best.fTest().pValue / 0.05, 6));
+        double pValueAdjustment = 1.0 / (1 + Math.pow(best.fTest().pValue / 0.05, 6));
 
-        double confidence = wBest * separationFromSecondBest * pValueGate;
+        double discrimination = wBest - wSecond;
+        double fitAdequacy = best.RSquared() * pValueAdjustment;
+        double similarity = OrderOfGrowth.similarity(best.model, secondBest.model);
 
-        return new Fit(best, confidence);
+        double confidence = discrimination * fitAdequacy;
+        double ambiguity = (1 - discrimination) * (1 - similarity);
+
+        return new Fit(best, secondBest, confidence, ambiguity);
     }
 
     private Regression fit(OrderOfGrowth model, List<Sample> samples) {
@@ -158,7 +211,7 @@ public abstract class OrderOfGrowthEstimator<T> {
         for (int i = 0; i < samples.size(); i++)
             x[i][0] = model.predict(samples.get(i)) / maxPredicted;
 
-        double maxTime = samples.stream().max(Comparator.comparing(Sample::time)).map(Sample::time).orElse(1.0);
+        double maxTime = samples.stream().mapToDouble(Sample::time).max().orElse(1.0);
         double[] y = new double[samples.size()];
         for (int i = 0; i < y.length; i++)
             y[i] = samples.get(i).time / maxTime;
@@ -170,8 +223,7 @@ public abstract class OrderOfGrowthEstimator<T> {
         return new Regression(model, samples, regression);
     }
 
-
-    private long getElapsedTimeNanos(long input) {
+    private long getElapsedTimeNanos(long input) throws E {
         T data = input(input);
         long start = System.nanoTime();
         action(data);
@@ -179,8 +231,8 @@ public abstract class OrderOfGrowthEstimator<T> {
         return end - start;
     }
 
-    static void main(String[] args) {
-        OrderOfGrowthEstimator<Integer[]> estimator = new OrderOfGrowthEstimator<>() {
+    static void main(String[] args) throws Exception {
+        OrderOfGrowthEstimator<Integer[], Exception> estimator = new OrderOfGrowthEstimator<>() {
             @Override
             protected Integer[] input(long n) {
                 Integer[] a = new Integer[Math.toIntExact(n)];
@@ -200,8 +252,9 @@ public abstract class OrderOfGrowthEstimator<T> {
             }
         };
         OrderOfGrowthEstimator.Fit fit = estimator.fit(1000L, 10, 5);
-        System.out.println("T(N) ~ " + fit.regression);
-        System.out.println("T(N) ~ O(" + fit.regression.model + ")");
+        System.out.println("T(N) ~ " + fit.best.toStringWithoutIntercept());
+        System.out.println("T(N) = O(" + fit.best.model + ")");
         System.out.println("Confidence = " + fit.confidence);
+        System.out.println("Ambiguity relative to O(" + fit.secondBest.model + ") = " + fit.ambiguity);
     }
 }

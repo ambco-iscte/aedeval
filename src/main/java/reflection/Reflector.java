@@ -1,10 +1,12 @@
 package reflection;
 
+import extensions.lang.ThrowingRunnable;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Classes that inherit Reflector can access methods that facilitate useful reflection operations.
@@ -62,13 +64,32 @@ public class Reflector {
      * @return The result of executing the Supplier.
      * @param <T> Result type.
      */
-    public static <T> T async(Supplier<T> block) throws ExecutionException, InterruptedException, TimeoutException {
+    public static <T> T async(Callable<T> block) throws ExecutionException, InterruptedException, TimeoutException {
         T result;
         try (ExecutorService handler = Executors.newSingleThreadExecutor()) {
-            Future<T> future = handler.submit(block::get);
+            Future<T> future = handler.submit(block);
             result = future.get(TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
         }
         return result;
+    }
+
+    /**
+     * Runs a Runnable asynchronously.
+     * @param block The Runnable to be executed asynchronously. Takes no arguments and does not return a value, but may throw exceptions.
+     */
+    public static void async(ThrowingRunnable block) throws Exception {
+        AtomicReference<Exception> thrown = new AtomicReference<>(null);
+        try (ExecutorService handler = Executors.newSingleThreadExecutor()) {
+            handler.submit(() -> {
+                try {
+                    block.run();
+                } catch (Exception e) {
+                    thrown.set(e);
+                }
+            }).get(TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
+        }
+        if (thrown.get() != null)
+            throw thrown.get();
     }
 
     /**

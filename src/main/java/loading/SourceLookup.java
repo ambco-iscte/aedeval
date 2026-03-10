@@ -4,7 +4,6 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.TypeDeclaration;
-import extensions.Console;
 import extensions.Levenshtein;
 import org.apache.commons.io.FilenameUtils;
 
@@ -40,7 +39,7 @@ public class SourceLookup {
         }
     }
 
-    public record FoundWithFileAndClassNameMismatch(String target, String actual, String clazz, File result) implements Result {
+    public record FoundWithFileAndClassNameMismatch(CompilationUnit unit, String target, String actual, String clazz, File result) implements Result {
         @Override
         public Optional<File> get() {
             return Optional.of(result);
@@ -83,11 +82,11 @@ public class SourceLookup {
                 CompilationUnit unit = tryOrElse(() -> StaticJavaParser.parse(child), null);
                 if (unit == null)
                     continue;
-                String primaryTypeName = getPrimaryTypeNameOrNull(unit);
+                String primaryTypeName = findFirstPublicType(unit);
 
                 if (primaryTypeName != null && FilenameUtils.getBaseName(name).equals(primaryTypeName)) {
                     if (!rename || renamed.renameTo(fixed))
-                        return new FoundWithFileAndClassNameMismatch(name, originalFileName, primaryTypeName, renamed);
+                        return new FoundWithFileAndClassNameMismatch(unit, name, originalFileName, primaryTypeName, renamed);
                 }
             }
         }
@@ -95,7 +94,7 @@ public class SourceLookup {
         return new NotFound(name);
     }
 
-    private static String getPrimaryTypeNameOrNull(CompilationUnit unit) {
+    private static String findFirstPublicType(CompilationUnit unit) {
         NodeList<TypeDeclaration<?>> types = unit.getTypes();
         if (types.isEmpty())
             return null;
