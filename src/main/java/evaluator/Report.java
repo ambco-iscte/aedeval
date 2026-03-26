@@ -5,6 +5,7 @@ import de.jplag.JPlagResult;
 import evaluator.annotations.Test;
 import evaluator.messages.Result;
 import extensions.DisjointSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.Serializable;
 import java.util.*;
@@ -147,17 +148,17 @@ public class Report implements Iterable<Report.Entry>, Serializable {
 
     public void print() {
         for (Entry entry : entries) {
-            System.out.printf("[%f] %s\n", entry.grade, entry.submission.getName());
+            System.out.printf("[%f] %s" + System.lineSeparator(), entry.grade, entry.submission.getName());
             for (Test test : entry.results.keySet()) {
-                System.out.printf("\t➤ %s\n", test.description());
+                System.out.printf("\t➤ %s" + System.lineSeparator(), test.description());
                 for (Result result : entry.results.get(test))
-                    System.out.printf("\t\t• %s\n", result.getMessage());
+                    System.out.printf("\t\t• %s" + System.lineSeparator(), result.getMessage());
             }
             System.out.println();
         }
     }
 
-    @Override
+    @Override @NotNull
     public Iterator<Entry> iterator() {
         return entries.iterator();
     }

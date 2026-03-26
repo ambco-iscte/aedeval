@@ -1,5 +1,7 @@
 package extensions.out;
 
+import java.io.PrintStream;
+
 public class Console {
 
     public enum ANSI {
@@ -88,12 +90,19 @@ public class Console {
         }
     }
 
+    private static PrintStream out = System.out;
+
+    public static void setOutputStream(PrintStream out) {
+        if (out != null)
+            Console.out = out;
+    }
+
     public static void println(String message, ANSI colour) {
-        System.out.println(colour.getColourCode() + message + ANSI.RESET.getColourCode());
+        out.println(colour.getColourCode() + message + ANSI.RESET.getColourCode());
     }
 
     public static void println(String message) {
-        System.out.println(message);
+        out.println(message);
     }
 
     public static void warning(String message) {

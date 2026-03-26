@@ -12,7 +12,7 @@ public class CompilationException extends Exception {
     private final List<Diagnostic<? extends JavaFileObject>> diagnostics;
 
     public CompilationException(List<Diagnostic<? extends JavaFileObject>> diagnostics) {
-        super(Extensions.joinToString("\n", diagnostics,
+        super(Extensions.joinToString(System.lineSeparator(), diagnostics,
                 d -> "Error at line " + d.getLineNumber() + ": " + d.getMessage(null)
         ));
         this.diagnostics = diagnostics;

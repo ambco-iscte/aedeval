@@ -21,7 +21,7 @@ public class ClassLoader {
 
     private static final java.util.List<URLClassLoader> loaders = new ArrayList<>();
 
-    public static void flush() throws IOException {
+    public static void clear() throws IOException {
         for (URLClassLoader loader : loaders) {
             loader.close();
         }
@@ -76,7 +76,8 @@ public class ClassLoader {
             throw new CompilationException(e.getMessage());
         } catch (ParseProblemException ignored) {
         } catch (Exception e) {
-            throw new CompilationException("Unexpected " + e.getClass().getCanonicalName() + " when cleaning source with JavaParser:\n" + Extensions.joinToString(System.lineSeparator(), e.getStackTrace()));
+            throw new CompilationException("Unexpected " + e.getClass().getCanonicalName() + " when cleaning source " +
+                    "with JavaParser:" + System.lineSeparator() + Extensions.joinToString(System.lineSeparator(), e.getStackTrace()));
         }
 
         // Creates a Java compiler

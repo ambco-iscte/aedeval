@@ -41,7 +41,9 @@ public abstract class XLSXReportWriter {
                 String content = Objects.toString(values[i]);
                 if (content.length() >= MAX_LENGTH)
                     content = content.substring(0, MAX_LENGTH);
-                cell.setCellValue(new XSSFRichTextString(content));
+
+                XSSFRichTextString string = new XSSFRichTextString(content);
+                cell.setCellValue(string);
             }
 
             stylise(cell, style, fontStyle);
@@ -53,6 +55,7 @@ public abstract class XLSXReportWriter {
         for (int i = 0; i < columns; i++) {
             sheet.autoSizeColumn(i, true);
         }
+        //sheet.setDefaultRowHeight((short) -1);
     }
 
     private static void disableRoundedCorners(XSSFChart chart) {
@@ -64,13 +67,19 @@ public abstract class XLSXReportWriter {
 
     private static void stylise(Cell cell, CellStyle style, FontStyle fontStyle) {
         Font regular = cell.getSheet().getWorkbook().createFont();
+        regular.setFontName("Aptos Narrow");
+        regular.setFontHeightInPoints((short) 11);
 
         Font bold = cell.getSheet().getWorkbook().createFont();
         bold.setBold(true);
+        bold.setFontName("Aptos Display");
+        bold.setFontHeightInPoints((short) 11);
 
         Font red = cell.getSheet().getWorkbook().createFont();
         red.setBold(true);
         red.setColor(Font.COLOR_RED);
+        red.setFontName("Aptos Narrow");
+        red.setFontHeightInPoints((short) 11);
 
         style.setWrapText(true);
         if (fontStyle == FontStyle.HEADER) {
@@ -93,6 +102,7 @@ public abstract class XLSXReportWriter {
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderTop(BorderStyle.THIN);
         style.setVerticalAlignment(VerticalAlignment.CENTER);
+
         cell.setCellStyle(style);
     }
 
@@ -148,7 +158,8 @@ public abstract class XLSXReportWriter {
 
         // Method failures distribution
         XSSFClientAnchor anchor3 = drawing.createAnchor(0, 0, 0, 0, 16, 19, 29, 37);
-        plot(drawing, anchor3, "Failures per Method/Test: " + title, "Method or Test Case", "Total # of Failures in Test Case", sampleSize, correctness, ChartTypes.BAR, false);
+        int totalFailures =  correctness.values().stream().mapToInt(n -> n).sum();
+        plot(drawing, anchor3, "Failures per Method/Test: " + title, "Method or Test Case", "% of Failures which are in the Method or Test Case", totalFailures, correctness, ChartTypes.BAR, true);
     }
 
     /**
@@ -206,6 +217,8 @@ public abstract class XLSXReportWriter {
 
                 // Collect count of errors per test
                 for (Map.Entry<Test, Set<Result>> t : entry.results().entrySet()) {
+                    if (t.getKey() == null)
+                        continue;
                     String description = t.getKey().description();
                     int errors = (int) t.getValue().stream().filter(result -> !result.passed()).count();
                     errorsPerTest.put(description, errorsPerTest.getOrDefault(description, 0) + errors);
@@ -228,12 +241,12 @@ public abstract class XLSXReportWriter {
                 grades.put(rounded, grades.getOrDefault(rounded, 0) + 1);
             }
 
-            // Fit Cell to Contents
-            fitCellContent(results, results.getRow(0).getPhysicalNumberOfCells());
-
             // Merge initial header cells to make it look prettier
             for (int i = 0; i < 4; i++)
                 results.addMergedRegion(new CellRangeAddress(0, 1, i, i));
+
+            // Fit Cell to Contents
+            fitCellContent(results, results.getRow(0).getPhysicalNumberOfCells());
 
             // Create Statistics sheet
             Sheet statistics = workbook.createSheet("Statistics");

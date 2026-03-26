@@ -16,8 +16,9 @@ public abstract class Result {
     @Documented
     public @interface AlwaysShowInReport { }
 
-    private final static String FAILURE_ERROR_CODE = "Assertion Failed";
+    private final static String FAILURE_ERROR_CODE = "Failed Requirement";
     private final static String SUCCESS_ERROR_CODE = "Success";
+    private final static String WARNING_ERROR_CODE = "Warning";
 
     private final Test test;
 
@@ -60,50 +61,27 @@ public abstract class Result {
     }
 
     public boolean isSuccess() {
-        return Objects.equals(errorCode(), SUCCESS_ERROR_CODE);
+        return this instanceof YouSucceedBecauseISaidSo;
     }
 
-    public boolean isFailure() {
-        return Objects.equals(errorCode(), FAILURE_ERROR_CODE);
+    public boolean isWarning() {
+        return this instanceof WarningYouToDoBetterNextTime;
+    }
+
+    public boolean isFailedRequirement() {
+        return this instanceof YouFailBecauseISaidSo;
     }
 
     public static Result success(Test test, String message) {
-        return new Result(test) {
-
-            @Override
-            public String errorCode() {
-                return SUCCESS_ERROR_CODE;
-            }
-
-            @Override
-            public boolean passed() {
-                return true;
-            }
-
-            @Override
-            public String getMessage() {
-                return message;
-            }
-        };
+        return new YouSucceedBecauseISaidSo(test, message);
     }
 
-    public static Result failure(Test test, String message) {
-        return new Result(test) {
-            @Override
-            public String errorCode() {
-                return FAILURE_ERROR_CODE;
-            }
+    public static Result failedRequirement(Test test, String message) {
+        return new YouFailBecauseISaidSo(test, message);
+    }
 
-            @Override
-            public boolean passed() {
-                return false;
-            }
-
-            @Override
-            public String getMessage() {
-                return message;
-            }
-        };
+    public static Result warning(Test test, String message) {
+        return new WarningYouToDoBetterNextTime(test, message);
     }
 
     @Override
@@ -114,5 +92,38 @@ public abstract class Result {
     @Override
     public int hashCode() {
         return Objects.hash(getClass(), test, toString());
+    }
+
+    private static class YouSucceedBecauseISaidSo extends Result {
+        private final String message;
+        private YouSucceedBecauseISaidSo(Test test, String message) {
+            super(test);
+            this.message = message;
+        }
+        @Override public String errorCode() { return SUCCESS_ERROR_CODE; }
+        @Override public boolean passed() { return true; }
+        @Override public String getMessage() { return message; }
+    }
+
+    private static class WarningYouToDoBetterNextTime extends Result {
+        private final String message;
+        private WarningYouToDoBetterNextTime(Test test, String message) {
+            super(test);
+            this.message = message;
+        }
+        @Override public String errorCode() { return WARNING_ERROR_CODE; }
+        @Override public boolean passed() { return false; }
+        @Override public String getMessage() { return message; }
+    }
+
+    private static class YouFailBecauseISaidSo extends Result {
+        private final String message;
+        private YouFailBecauseISaidSo(Test test, String message) {
+            super(test);
+            this.message = message;
+        }
+        @Override public String errorCode() { return FAILURE_ERROR_CODE; }
+        @Override public boolean passed() { return false; }
+        @Override public String getMessage() { return message; }
     }
 }

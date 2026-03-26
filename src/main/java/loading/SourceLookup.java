@@ -16,7 +16,9 @@ import static extensions.Extensions.tryOrElse;
 
 public class SourceLookup {
 
-    public interface Result extends Supplier<Optional<File>> { }
+    public interface Result extends Supplier<Optional<File>> {
+        default Optional<CompilationUnit> getCompilationUnit() { return Optional.empty(); }
+    }
 
     public record NotFound(String target) implements Result {
         @Override
@@ -43,6 +45,11 @@ public class SourceLookup {
         @Override
         public Optional<File> get() {
             return Optional.of(result);
+        }
+
+        @Override
+        public Optional<CompilationUnit> getCompilationUnit() {
+            return Optional.of(unit);
         }
     }
 

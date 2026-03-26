@@ -4,8 +4,6 @@ import evaluator.Tester;
 import evaluator.annotations.Test;
 import extensions.Extensions;
 
-import java.util.Arrays;
-
 public class UnexpectedExceptionError extends Result {
 
     private final Tester.MethodCall call;
@@ -61,8 +59,7 @@ public class UnexpectedExceptionError extends Result {
             case CONTENT -> "Expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
         };
 
-        return call + " returned wrong result: " +
-                expectedMessage + " but threw " + exception.getClass().getSimpleName() + " " +
-                "with message \"" + exception.getMessage() + "\"";
+        return call.toStringWithHistoryOrDefault() + " returned wrong result: " +
+                expectedMessage + " but threw " + exception.getClass().getSimpleName() + ": " + exception.getMessage();
     }
 }

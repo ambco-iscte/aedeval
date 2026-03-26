@@ -98,6 +98,14 @@ public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
     protected abstract long update(long n) throws E;
 
     public Fit fit(long initial, int steps, int repeats) throws E {
+        return fit(calculateSamples(initial, steps, repeats), false);
+    }
+
+    public Fit fitAmortized(long initial, int steps, int repeats) throws E {
+        return fit(calculateSamples(initial, steps, repeats), true);
+    }
+
+    private List<Sample> calculateSamples(long initial, int steps, int repeats) throws E {
         List<Sample> samples = new ArrayList<>();
 
         // JVM Warmup
@@ -111,7 +119,7 @@ public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
             samples.add(new Sample(n, (double) sum / repeats));
         }
 
-        return fit(samples, exponent(samples));
+        return samples;
     }
 
     public double calculateEstimatedExponent(long initial, int steps, int repeats) throws E {
@@ -147,29 +155,12 @@ public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
         return estimates.get(estimates.size() / 2);
     }
 
-    private boolean plausible(OrderOfGrowth model, double exponent) {
-        if (model == OrderOfGrowth.CONSTANT || model == OrderOfGrowth.LOGSTAR || model == OrderOfGrowth.LOGARITHMIC)
-            return exponent < 0.6;
-        if (model == OrderOfGrowth.LINEAR || model == OrderOfGrowth.LINEARLOGSTAR || model == OrderOfGrowth.LINEARITHMIC)
-            return exponent >= 0.6 && exponent < 1.6;
-        if (model == OrderOfGrowth.QUADRATIC)
-            return exponent >= 1.6 && exponent < 2.6;
-        if (model == OrderOfGrowth.CUBIC)
-            return exponent >= 2.6 && exponent < 3.6;
-        if (model == OrderOfGrowth.QUARTIC)
-            return exponent >= 3.6 && exponent < 4.6;
-        if (model == OrderOfGrowth.QUINTIC)
-            return exponent >= 4.6 && exponent < 5.6;
-        return true;
-    }
-
-    private Fit fit(List<Sample> samples, double exponent) {
+    private Fit fit(List<Sample> samples, boolean amortized) {
         List<Regression> result = new ArrayList<>();
         for (OrderOfGrowth model : OrderOfGrowth.COMMON) {
-            Regression fit = fit(model, samples);
+            Regression fit = fit(model, samples, amortized);
             if (!Double.isNaN(fit.AIC()))
                 result.add(fit);
-           // if (plausible(model, exponent)) { }
         }
 
         // https://en.wikipedia.org/wiki/Relative_likelihood#Relative_likelihood_of_models
@@ -205,16 +196,16 @@ public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
         return new Fit(best, secondBest, confidence, ambiguity);
     }
 
-    private Regression fit(OrderOfGrowth model, List<Sample> samples) {
+    private Regression fit(OrderOfGrowth model, List<Sample> samples, boolean amortized) {
         double[][] x = new double[samples.size()][1];
         double maxPredicted = samples.stream().mapToDouble(model::predict).max().orElse(1.0);
         for (int i = 0; i < samples.size(); i++)
-            x[i][0] = model.predict(samples.get(i)) / maxPredicted;
+            x[i][0] = model.predict(samples.get(i)) / (maxPredicted * (amortized ? samples.get(i).n : 1));
 
         double maxTime = samples.stream().mapToDouble(Sample::time).max().orElse(1.0);
         double[] y = new double[samples.size()];
         for (int i = 0; i < y.length; i++)
-            y[i] = samples.get(i).time / maxTime;
+            y[i] = samples.get(i).time / (maxTime * (amortized ? samples.get(i).n : 1));
 
         OLSMultipleLinearRegression regression = new OLSMultipleLinearRegression();
         regression.setNoIntercept(false);
@@ -243,7 +234,12 @@ public abstract class OrderOfGrowthEstimator<T, E extends Throwable> {
 
             @Override
             protected void action(Integer[] input) {
-                Arrays.sort(input);
+                double sum = 0.0;
+                for (int i = 0; i < input.length; i++) {
+                    for (int j = 0; j < input.length; j++) {
+                        sum += i * j * input[j];
+                    }
+                }
             }
 
             @Override

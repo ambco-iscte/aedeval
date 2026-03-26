@@ -36,6 +36,6 @@ public class MissingFileError extends Result {
 
     @Override
     public String getMessage() {
-        return String.format("File not found: %s. Make sure you submit the .java file with the correct name!", name);
+        return String.format("Could not find file %s or any file with a similar name. Make sure you submit the .java file with the correct name!", name);
     }
 }

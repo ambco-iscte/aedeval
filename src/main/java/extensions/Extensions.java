@@ -9,10 +9,35 @@ import java.util.function.Predicate;
 
 public class Extensions {
 
+    public static String capitaliseFirstCharacter(String string) {
+        if (string == null)
+            return null;
+        if (string.isEmpty())
+            return "";
+        return Character.toUpperCase(string.charAt(0)) + string.substring(1);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T[] concat(T[] a, T[] b) {
+        if (a == null) return b;
+        if (b == null) return a;
+
+        T[] both = (T[]) Array.newInstance(a.getClass().componentType(), a.length + b.length);
+        System.arraycopy(a, 0, both, 0, a.length);
+        System.arraycopy(b, 0, both, a.length, b.length);
+        return both;
+    }
+
     public static double iteratedLogarithm(double n) {
         if (n <= 1)
             return 0;
         return 1 + iteratedLogarithm(Math.log(n));
+    }
+
+    public static double iteratedLogarithm(double n, double base) {
+        if (n <= 1)
+            return 0;
+        return 1 + iteratedLogarithm(Math.log(n) / Math.log(base));
     }
 
     public static <T> T tryOrElse(Callable<T> block, T defaultValue) {

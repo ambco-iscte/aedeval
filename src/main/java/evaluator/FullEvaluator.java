@@ -21,44 +21,92 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Class used for testing a batch of source code files and collecting all results.
+ * The {@code FullEvaluator} class is used to evaluate many student submissions to the same assignment.
  *
+ * <p>Evaluation requires at least three arguments:</p>
+ * <ol>
+ *     <li>The path to the folder containing the submissions;</li>
+ *     <li>A description, usually corresponding to an assignment's name or title.</li>
+ *     <li>A class inheriting {@link Tester} where the unit tests are defined.</li>
+ * </ol>
+ *
+ * <p>In this way, evaluation can be performed by instantiating a new evaluator and calling the {@link #run()} method:</p>
+ *
+ * <pre>{@code
+ * String folder = "path/to/folder/containing/all/submissions";
+ * Report results = new FullEvaluator<>(folder, "Title", MyTester.class).run();
+ * }</pre>
+ *
+ * <p>If there are many submissions, you may want to enable multithreading. This is done through the {@link #run(int)}
+ * method, which takes the number of threads to use. Both methods produce an evaluation {@link Report}.</p>
+ *
+ * <p>Sometimes, students may submit source code files with names that are different yet similar to those intended.
+ * If you want the evaluator to automatically search for files with similar names, you can pass a
+ * {@code fileNameSimilarityThreshold} parameter which defines how similar a file name must be to the intended name to
+ * be considered (0 to 1, default = 0.8).</p>
+ *
+ * <pre>{@code
+ * new FullEvaluator<>("path/to/folder", "Title", MyTester.class, 0.95);
+ * }</pre>
+ *
+ * <p>Matching of similar file names is based on the {@link extensions.Levenshtein} distance.</p>
+ *
+ * @see Tester
+ * @see Submission
  * @author Afonso Caniço
  */
 public class FullEvaluator<T extends Tester> {
 
-	private static final long SUBMISSION_TIMEOUT_MINUTES = 5L;
+    private ExecutorCompletionService<Tester> EXECUTOR;
 
     private static final String BACKUP_FILE_EXTENSION = "backup";
-
-	private ExecutorCompletionService<Tester> EXECUTOR;
+    private boolean backupActive = false;
 
 	private final Class<T> tester;
-
 	private final List<String> expected;
-
+    private final double fileNameSimilarityThreshold;
 	private final String root;
-
 	private final String description;
-
 	private File referenceCodeFolder;
 
-	public FullEvaluator(String root, String description, Class<T> tester) {
+    /**
+     * The {@code FullEvaluator} class is used to evaluate many student submissions to the same assignment.
+     * @param root Path to the folder containing student submissions.
+     * @param description Assignment or task description or title.
+     * @param tester {@link Tester} class to use.
+     * @param fileNameSimilarityThreshold Threshold (0..1) for file name similarity when a file cannot be found through its exact name (see {@link loading.SourceLookup}).
+     */
+	public FullEvaluator(String root, String description, Class<T> tester, double fileNameSimilarityThreshold) {
+        if (fileNameSimilarityThreshold < 0 || fileNameSimilarityThreshold > 1)
+            throw new IllegalArgumentException("File name similarity threshold must be >= 0 and <= 1.");
+
 		this.root = root;
 		this.description = description;
 		this.tester = tester;
 		this.expected = Tester.getAllRequiredFiles(tester).stream().toList();
+        this.fileNameSimilarityThreshold = fileNameSimilarityThreshold;
 	}
+
+    public FullEvaluator(String root, String description, Class<T> tester) {
+        this(root, description, tester, 0.8);
+    }
 
 	public FullEvaluator<T> withReference(File folder) {
 		this.referenceCodeFolder = folder;
 		return this;
 	}
 
+    private void terminate(Map<File, Submission> submissions, boolean early) {
+        if (early)
+            Console.warning("Early shutdown! Restoring submission files.");
+        restoreSubmissionCodeFiles(submissions);
+        try { ClassLoader.clear(); } catch (IOException ignored) { }
+    }
+
 	/**
 	 * Validates all files and evaluates all source code files present in the parent directory.
      * Execution is asynchronous with a fixed number of threads.
-     * @param threads Number of parallel threads to use.
+     * @param threads Number of threads to use.
 	 */
 	public @NotNull Report run(int threads) {
         // Set thread pool
@@ -71,29 +119,33 @@ public class FullEvaluator<T extends Tester> {
         // Backup Student Submission Files
         backupSubmissionFiles(submissions);
 
+        // Create Report
         Report report = new Report(description);
 
-		try {
-			// Run Plagiarism Checker (before evaluator cleans code files!)
-			if (submissions.size() >= 2)
-				report.setPlagiarismAnalysis(checkPlagiarism());
+        // Restore submission backup files if the program is terminated early!
+        Thread restoreOnShutdown = new Thread(() -> terminate(submissions, true));
+        Runtime.getRuntime().addShutdownHook(restoreOnShutdown);
 
-			// Evaluate Student Submissions
+		try {
+            long valid = submissions.values().stream().filter(Submission::isValid).count();
+			if (valid >= 2)
+				report.setPlagiarismAnalysis(checkPlagiarism());
+            else
+                Console.warning("Cannot run JPlag plagiarism analysis with only " + valid + " valid submission(s).");
 			evaluateAllFiles(submissions, report);
-			ClassLoader.flush();
 		} catch (Exception e) {
 			Console.error(e.getClass().getCanonicalName() + " thrown when running full evaluation: " + e.getMessage());
 		}
 
-        restoreSubmissionCodeFiles(submissions);
-        try { ClassLoader.flush(); } catch (IOException ignored) { }
+        terminate(submissions, false);
+        Runtime.getRuntime().removeShutdownHook(restoreOnShutdown);
 
         return report;
 	}
 
     /**
      * Validates all files and evaluates all source code files present in the parent directory.
-     * Execution is synchronous. This is equivalent to calling {@link #run(int)} with {@code threads = 1}.
+     * This is equivalent to calling {@link #run(int)} with {@code threads = 1}.
      */
     public Report run() {
         return run(1);
@@ -108,7 +160,8 @@ public class FullEvaluator<T extends Tester> {
 				.withNormalize(true) // Normalise token order
 				.withExclusionFileName(".jplag/exclude.txt");
 
-		Console.warning("JPlag is ignoring the following files: " + Extensions.joinToString(options.excludedFiles()));
+        if (!options.excludedFiles().isEmpty())
+		    Console.warning("JPlag is ignoring the following files: " + Extensions.joinToString(options.excludedFiles()));
 
 		if (referenceCodeFolder != null)
 			options = options.withBaseCodeSubmissionDirectory(referenceCodeFolder); // Reference code
@@ -118,7 +171,7 @@ public class FullEvaluator<T extends Tester> {
 			long start = System.currentTimeMillis();
 			JPlagResult result = JPlag.run(options);
 			long end = System.currentTimeMillis();
-			System.out.println("Done! Elapsed time: " + ((end - start) / 1000.0) + " seconds.\n");
+			System.out.println("Done! Elapsed time: " + ((end - start) / 1000.0) + " seconds." + System.lineSeparator());
 			return result;
 		} catch (ExitException e) {
 			Console.error("Exception thrown when running plagiarism analysis: " + e.getMessage());
@@ -127,6 +180,8 @@ public class FullEvaluator<T extends Tester> {
 	}
 
     private void backupSubmissionFiles(Map<File, Submission> submissions) {
+        if (backupActive)
+            return;
         for (File submissionDirectory : submissions.keySet()) {
             for (File file : Files.walk(submissionDirectory)) {
                 if (file.isFile()) {
@@ -144,9 +199,13 @@ public class FullEvaluator<T extends Tester> {
                 }
             }
         }
+        backupActive = true;
     }
 
 	private void restoreSubmissionCodeFiles(Map<File, Submission> submissions) {
+        if (!backupActive)
+            return;
+
         for (File submissionDirectory : submissions.keySet()) {
             for (File file : Files.walk(submissionDirectory)) {
                 if (file.isFile()) {
@@ -180,6 +239,8 @@ public class FullEvaluator<T extends Tester> {
 				}
 			}
 		}
+
+        backupActive = false;
 	}
 
 	private Map<File, Submission> validateSubmissions() {
@@ -228,13 +289,14 @@ public class FullEvaluator<T extends Tester> {
         }
 
 		for (int i = 0; i < tasks.size(); i++) {
-            Future<Tester> future = EXECUTOR.take(); // Process testers as they finish (waits for a task to finish)
-			Tester test = future.get();
-			Submission submission = test.getSubmission();
+            Future<Tester> future = EXECUTOR.take();
+            Tester test = future.get();
+            Submission submission = test.getSubmission();
 
-			double grade = test.grade();
-			report.add(submission, test.getResults(), grade);
+            double grade = test.grade();
+            report.add(submission, test.getResults(), grade);
             progress.step();
+
             System.gc();
 		}
 
@@ -248,11 +310,11 @@ public class FullEvaluator<T extends Tester> {
 	 * @param tester The {@link Tester} class to use for submission testing and validation.
 	 * @return A list of all callable tasks. See also: {@link ExecutorService#invokeAll(Collection)}.
 	 */
-	private static List<Callable<Tester>> getEvaluationTasks(Map<File, Submission> submissions, Class<? extends Tester> tester) {
+	private List<Callable<Tester>> getEvaluationTasks(Map<File, Submission> submissions, Class<? extends Tester> tester) {
 		List<Callable<Tester>> tasks = new ArrayList<>();
 		for (File subDir : submissions.keySet()) {
 			if (subDir.isDirectory()) {
-				tasks.add(new TesterDispatcher(submissions.get(subDir), tester));
+				tasks.add(new TesterDispatcher(submissions.get(subDir), tester, fileNameSimilarityThreshold));
 			}
 		}
 		return tasks;

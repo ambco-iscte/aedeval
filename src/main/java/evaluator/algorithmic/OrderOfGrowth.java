@@ -5,12 +5,28 @@ import org.jetbrains.annotations.NotNull;
 import org.jspecify.annotations.NonNull;
 
 import java.util.List;
+import java.util.Objects;
 
 public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
+
+    public enum Family {
+        EXPONENTIAL,
+        POLYLOGARITHMIC,
+        POLYNOMIAL,
+        LOGARITHMIC,
+    }
 
     private record Signature(int expCoeff, int expPow, int poly, int log, int iteratedLog) implements Comparable<Signature> {
 
         private static final String NO_NEG_EXP = "Growth order signatures cannot have negative exponents!";
+
+        private Family determineFamily() {
+            if (expCoeff > 0 && expPow > 0) return Family.EXPONENTIAL;
+            else if (poly > 0 && log > 0) return Family.POLYLOGARITHMIC;
+            else if (poly > 0 && log == 0) return Family.POLYNOMIAL;
+            else if (log > 0 || iteratedLog > 0) return Family.LOGARITHMIC;
+            else return null;
+        }
 
         public static double distance(Signature s1, Signature s2) {
             if (s1 == null || s2 == null)
@@ -103,13 +119,16 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
     }
 
     private final Signature signature;
+    public final Family family;
 
     private OrderOfGrowth(Signature signature) {
         this.signature = signature.normalized();
+        this.family = this.signature.determineFamily();
     }
 
     private OrderOfGrowth(int a, int exp, int poly, int log, int iteratedLog) {
         this.signature = new Signature(a, exp, poly, log, iteratedLog).normalized();
+        this.family = this.signature.determineFamily();
     }
 
     @Override
@@ -329,11 +348,27 @@ public abstract class OrderOfGrowth implements Comparable<OrderOfGrowth> {
         };
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        OrderOfGrowth that = (OrderOfGrowth) o;
+        return Objects.equals(signature, that.signature);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(signature);
+    }
+
     public static final OrderOfGrowth[] BASIS = new OrderOfGrowth[] {
         CONSTANT, LOGARITHMIC, LINEAR, EXPONENTIAL,
     };
 
     public static final OrderOfGrowth[] COMMON = new OrderOfGrowth[] {
+        CONSTANT, LOGARITHMIC, LINEAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC
+    };
+
+    public static final OrderOfGrowth[] EXTENDED = new OrderOfGrowth[] {
         CONSTANT, LOGSTAR, LOGARITHMIC, LINEAR, LINEARLOGSTAR, LINEARITHMIC, QUADRATIC, CUBIC, QUARTIC, QUINTIC, EXPONENTIAL,
         QUADRATIC.times(LOGARITHMIC), CUBIC.times(LOGARITHMIC), QUARTIC.times(LOGARITHMIC), QUINTIC.times(LOGARITHMIC)
     };

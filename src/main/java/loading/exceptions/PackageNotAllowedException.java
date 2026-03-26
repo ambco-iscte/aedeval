@@ -13,9 +13,10 @@ public class PackageNotAllowedException extends Exception {
     public PackageNotAllowedException(Map<String, Node[]> usages, String[] allowed) {
         StringBuilder builder = new StringBuilder();
         for (String pkg : usages.keySet()) {
-            builder.append("Usages of package %s are not allowed (used at: %s)\n".formatted(
+            builder.append("Usages of package %s are not allowed (used at: %s)%s".formatted(
                 pkg,
-                Extensions.joinToString("; ", usages.get(pkg))
+                Extensions.joinToString("; ", usages.get(pkg)),
+                System.lineSeparator()
             ));
         }
         super(builder.toString());

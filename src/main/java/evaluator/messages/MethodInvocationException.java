@@ -42,8 +42,10 @@ public class MethodInvocationException<T extends Throwable, R extends Throwable>
 
     @Override
     public String getMessage() {
+
         if (passed())
             return "Expected exception: " + expected.getSimpleName();
-        return call + " threw the wrong type of exception: Expected " + expected.getSimpleName() + " but threw " + actual.getSimpleName();
+        return call.toStringWithHistoryOrDefault() + " threw the wrong " +
+                "type of exception: Expected " + expected.getSimpleName() + " but threw " + actual.getSimpleName();
     }
 }

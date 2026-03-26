@@ -4,7 +4,10 @@ import evaluator.Tester;
 import evaluator.annotations.Test;
 import extensions.Extensions;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 
 public class MethodInvocationResult extends Result {
 
@@ -87,15 +90,20 @@ public class MethodInvocationResult extends Result {
 
     @Override
     public String getMessage() {
-        String expectedMessage = switch(equalsType) {
-            case EXACT -> "Expected <" + Extensions.toStringOrDefault(expected) + ">";
-            case ANY -> "Expected one of " + Extensions.toStringOrDefault(expected);
-            case PERMUTATION -> "Expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
-            case CONTENT -> "Expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
+        String expectedMessage = switch (equalsType) {
+            case EXACT -> "expected <" + Extensions.toStringOrDefault(expected) + ">";
+            case ANY -> "expected one of " + Extensions.toStringOrDefault(expected);
+            case PERMUTATION -> "expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
+            case CONTENT -> "expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
         };
 
         if (passed())
-            return expectedMessage;
-        return call + " returned wrong result: " + expectedMessage + " but was <" + Extensions.toStringOrDefault(actual) + ">";
+            return Extensions.capitaliseFirstCharacter(expectedMessage);
+
+        return "%s returned wrong result: %s but was <%s>".formatted(
+            call.toStringWithHistoryOrDefault(),
+            expectedMessage,
+            Extensions.toStringOrDefault(actual)
+        );
     }
 }

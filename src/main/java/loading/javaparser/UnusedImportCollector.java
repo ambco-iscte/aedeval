@@ -2,7 +2,11 @@ package loading.javaparser;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
@@ -105,6 +109,24 @@ public class UnusedImportCollector extends VoidVisitorAdapter<Void> {
         for (Expression argument : n.getArguments()) {
             checkIsImportedExpression(argument);
         }
+        super.visit(n, arg);
+    }
+
+    public void visit(MethodDeclaration n, Void arg) {
+        checkIsImported(n.getType());
+        for (Parameter argument : n.getParameters()) {
+            checkIsImported(argument.getType());
+        }
+        super.visit(n, arg);
+    }
+
+    public void visit(ClassOrInterfaceDeclaration n, Void arg) {
+        for (ClassOrInterfaceType type : n.getImplementedTypes())
+            checkIsImported(type);
+        for (ClassOrInterfaceType type : n.getPermittedTypes())
+            checkIsImported(type);
+        for (ClassOrInterfaceType type : n.getExtendedTypes())
+            checkIsImported(type);
         super.visit(n, arg);
     }
 }
