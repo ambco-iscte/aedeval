@@ -12,10 +12,12 @@ public class CompilationException extends Exception {
     private final List<Diagnostic<? extends JavaFileObject>> diagnostics;
 
     public CompilationException(List<Diagnostic<? extends JavaFileObject>> diagnostics) {
-        super(Extensions.joinToString(System.lineSeparator(), diagnostics,
-                d -> "Error at line " + d.getLineNumber() + ": " + d.getMessage(null)
-        ));
+        super(Extensions.joinToString(System.lineSeparator(), diagnostics, CompilationException::message));
         this.diagnostics = diagnostics;
+    }
+
+    private static String message(Diagnostic<? extends JavaFileObject> diagnostic) {
+        return "Error at line " + diagnostic.getLineNumber() + ": " + diagnostic.getMessage(null);
     }
 
     public CompilationException(String message) {

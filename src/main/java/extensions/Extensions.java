@@ -4,10 +4,21 @@ import java.io.File;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
 public class Extensions {
+
+    public static <K, V> Map<K, V> filter(Map<K, V> map, BiPredicate<K, V> predicate) {
+        Map<K, V> result = new LinkedHashMap<>();
+        for (K key : map.keySet()) {
+            V value = map.get(key);
+            if (predicate.test(key, value))
+                result.put(key, value);
+        }
+        return result;
+    }
 
     public static String capitaliseFirstCharacter(String string) {
         if (string == null)

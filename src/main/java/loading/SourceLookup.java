@@ -2,8 +2,6 @@ package loading;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.TypeDeclaration;
 import extensions.Levenshtein;
 import org.apache.commons.io.FilenameUtils;
 
@@ -51,6 +49,10 @@ public class SourceLookup {
         public Optional<CompilationUnit> getCompilationUnit() {
             return Optional.of(unit);
         }
+
+        public boolean isCorrectFileName() {
+            return target.equals(actual);
+        }
     }
 
     public static Result lookup(File root, String name) {
@@ -74,9 +76,17 @@ public class SourceLookup {
             if (!renamed.isFile())
                 continue;
 
+            CompilationUnit unit = tryOrElse(() -> StaticJavaParser.parse(child), null);
+
             // Is the file name equal to the target file name?
-            if (name.equals(renamed.getName()))
+            if (name.equals(renamed.getName())) {
+                if (unit != null) {
+                    String primaryTypeName = Source.findFirstPublicTypeName(unit);
+                    if (primaryTypeName != null && !FilenameUtils.getBaseName(name).equals(primaryTypeName))
+                        return new FoundWithFileAndClassNameMismatch(unit, name, originalFileName, primaryTypeName, renamed);
+                }
                 return new FoundWithExactName(name, renamed);
+            }
 
             File fixed = Path.of(renamed.getParentFile().getPath(), name).toFile();
 
@@ -86,10 +96,9 @@ public class SourceLookup {
                 if (!rename || renamed.renameTo(fixed))
                     return new FoundWithSimilarName(name, originalFileName, renamed);
             } else {
-                CompilationUnit unit = tryOrElse(() -> StaticJavaParser.parse(child), null);
                 if (unit == null)
                     continue;
-                String primaryTypeName = findFirstPublicType(unit);
+                String primaryTypeName = Source.findFirstPublicTypeName(unit);
 
                 if (primaryTypeName != null && FilenameUtils.getBaseName(name).equals(primaryTypeName)) {
                     if (!rename || renamed.renameTo(fixed))
@@ -101,19 +110,4 @@ public class SourceLookup {
         return new NotFound(name);
     }
 
-    private static String findFirstPublicType(CompilationUnit unit) {
-        NodeList<TypeDeclaration<?>> types = unit.getTypes();
-        if (types.isEmpty())
-            return null;
-
-        if (types.size() == 1 && types.getFirst().isPresent())
-            return types.getFirst().get().getNameAsString();
-
-        for (TypeDeclaration<?> type : types) {
-            if (type.isPublic()) // && hasMainMethod(type))
-                return type.getNameAsString();
-        }
-
-        return null;
-    }
 }

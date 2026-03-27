@@ -16,8 +16,12 @@ public abstract class Result {
     @Documented
     public @interface AlwaysShowInReport { }
 
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    @Documented
+    public @interface DoNotShowInReport { }
+
     private final static String FAILURE_ERROR_CODE = "Failed Requirement";
-    private final static String SUCCESS_ERROR_CODE = "Success";
     private final static String WARNING_ERROR_CODE = "Warning";
 
     private final Test test;
@@ -36,12 +40,10 @@ public abstract class Result {
 
     @Override
     public String toString() {
-        if (passed())
-            return "[pass]" + getMessage();
-        return "[fail]" + getMessage();
+        return (passed() ? "[pass] " : "[fail] ") + getMessage();
     }
 
-    public static Result exception(Test test, Throwable cause) {
+    public static Result unexpectedException(Test test, Throwable cause) {
         return new Result(test) {
             @Override
             public String errorCode() {
@@ -60,28 +62,32 @@ public abstract class Result {
         };
     }
 
-    public boolean isSuccess() {
-        return this instanceof YouSucceedBecauseISaidSo;
+    public static Result success(Test test) {
+        return new ScriptedSuccess(test);
     }
 
-    public boolean isWarning() {
-        return this instanceof WarningYouToDoBetterNextTime;
-    }
-
-    public boolean isFailedRequirement() {
-        return this instanceof YouFailBecauseISaidSo;
-    }
-
-    public static Result success(Test test, String message) {
-        return new YouSucceedBecauseISaidSo(test, message);
+    public static Result failure(Test test) {
+        return new ScriptedFailure(test);
     }
 
     public static Result failedRequirement(Test test, String message) {
-        return new YouFailBecauseISaidSo(test, message);
+        return new FailedRequirement(test, message);
     }
 
     public static Result warning(Test test, String message) {
-        return new WarningYouToDoBetterNextTime(test, message);
+        return new Warning(test, message);
+    }
+
+    public boolean isSuccess() {
+        return this instanceof ScriptedSuccess;
+    }
+
+    public boolean isWarning() {
+        return this instanceof Warning;
+    }
+
+    public boolean isFailure() {
+        return this instanceof FailedRequirement || this instanceof ScriptedFailure;
     }
 
     @Override
@@ -91,23 +97,20 @@ public abstract class Result {
 
     @Override
     public int hashCode() {
-        return Objects.hash(getClass(), test, toString());
+        return Objects.hash(getClass(), test, passed(), getMessage());
     }
 
-    private static class YouSucceedBecauseISaidSo extends Result {
-        private final String message;
-        private YouSucceedBecauseISaidSo(Test test, String message) {
-            super(test);
-            this.message = message;
-        }
-        @Override public String errorCode() { return SUCCESS_ERROR_CODE; }
+    @DoNotShowInReport
+    private static class ScriptedSuccess extends Result {
+        private ScriptedSuccess(Test test) { super(test); }
+        @Override public String errorCode() { return null; }
         @Override public boolean passed() { return true; }
-        @Override public String getMessage() { return message; }
+        @Override public String getMessage() { return null; }
     }
 
-    private static class WarningYouToDoBetterNextTime extends Result {
+    private static class Warning extends Result {
         private final String message;
-        private WarningYouToDoBetterNextTime(Test test, String message) {
+        private Warning(Test test, String message) {
             super(test);
             this.message = message;
         }
@@ -116,14 +119,22 @@ public abstract class Result {
         @Override public String getMessage() { return message; }
     }
 
-    private static class YouFailBecauseISaidSo extends Result {
+    private static class FailedRequirement extends Result {
         private final String message;
-        private YouFailBecauseISaidSo(Test test, String message) {
+        private FailedRequirement(Test test, String message) {
             super(test);
             this.message = message;
         }
         @Override public String errorCode() { return FAILURE_ERROR_CODE; }
         @Override public boolean passed() { return false; }
         @Override public String getMessage() { return message; }
+    }
+
+    @DoNotShowInReport
+    private static class ScriptedFailure extends Result {
+        private ScriptedFailure(Test test) {super(test); }
+        @Override public String errorCode() { return null; }
+        @Override public boolean passed() { return false; }
+        @Override public String getMessage() { return null; }
     }
 }

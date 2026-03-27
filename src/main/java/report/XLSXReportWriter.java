@@ -106,7 +106,7 @@ public abstract class XLSXReportWriter {
         cell.setCellStyle(style);
     }
 
-    private static void plot(XSSFDrawing drawing, XSSFClientAnchor anchor, String title, String x, String y, int n, Map<String, ? extends Number> data, ChartTypes type, boolean percentage) {
+    private static void plot(XSSFDrawing drawing, XSSFClientAnchor anchor, String title, String x, String y, int n, Map<String, ? extends Number> data, ChartTypes type, boolean percentage, boolean hideZeroes) {
         XSSFChart chart = drawing.createChart(anchor);
         chart.setTitleText(title + " (n = " + n + ")");
         chart.setTitleOverlay(false);
@@ -123,18 +123,20 @@ public abstract class XLSXReportWriter {
         leftAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
         leftAxis.getOrAddTextProperties().setFontSize(16.0);
 
-        XDDFCategoryDataSource verticalLabels = XDDFDataSourcesFactory.fromArray(data.keySet().toArray(new String[0]));
+        Map<String, ? extends Number> numbers =
+            hideZeroes ? Extensions.filter(data, (_, value) -> value.doubleValue() > 0) : data;
+        XDDFCategoryDataSource verticalLabels = XDDFDataSourcesFactory.fromArray(numbers.keySet().toArray(new String[0]));
         XDDFNumericalDataSource<Number> horizontalValues;
 
         if (percentage) {
             horizontalValues =
-                    XDDFDataSourcesFactory.fromArray(
-                        data.values().stream().map(i -> 100 * i.doubleValue() / n
-                    ).toList().toArray(new Double[0]));
+                XDDFDataSourcesFactory.fromArray(
+                    numbers.values().stream().map(i -> 100 * i.doubleValue() / n
+                ).toList().toArray(new Double[0]));
             leftAxis.setMinimum(0);
         }
         else
-            horizontalValues = XDDFDataSourcesFactory.fromArray(data.values().toArray(new Number[0]));
+            horizontalValues = XDDFDataSourcesFactory.fromArray(numbers.values().toArray(new Number[0]));
 
         XDDFChartData chartData = chart.createData(type, bottomAxis, leftAxis);
         XDDFBarChartData.Series series = (XDDFBarChartData.Series) chartData.addSeries(verticalLabels, horizontalValues);
@@ -150,16 +152,16 @@ public abstract class XLSXReportWriter {
 
         // Grade distributions
         XSSFClientAnchor anchor1 = drawing.createAnchor(0, 0, 0, 0, 0, 0, 16, 37);
-        plot(drawing, anchor1, "Grades: " + title, "Grade", "% of Submissions with Grade", sampleSize, grades, ChartTypes.BAR, true);
+        plot(drawing, anchor1, "Grades: " + title, "Grade", "% of Submissions with Grade", sampleSize, grades, ChartTypes.BAR, true, false);
 
         // Error type distributions
         XSSFClientAnchor anchor2 = drawing.createAnchor(0, 0, 0, 0, 16, 0, 29, 19);
-        plot(drawing, anchor2, "Errors: " + title, "Error Type", "% of Submissions with Errors of Type", sampleSize, errors, ChartTypes.BAR, true);
+        plot(drawing, anchor2, "Errors: " + title, "Error Type", "% of Submissions with Errors of Type", sampleSize, errors, ChartTypes.BAR, true, true);
 
         // Method failures distribution
         XSSFClientAnchor anchor3 = drawing.createAnchor(0, 0, 0, 0, 16, 19, 29, 37);
         int totalFailures =  correctness.values().stream().mapToInt(n -> n).sum();
-        plot(drawing, anchor3, "Failures per Method/Test: " + title, "Method or Test Case", "% of Failures which are in the Method or Test Case", totalFailures, correctness, ChartTypes.BAR, true);
+        plot(drawing, anchor3, "Failures per Method/Test: " + title, "Method or Test Case", "% of Failures which are in the Method or Test Case", totalFailures, correctness, ChartTypes.BAR, true, true);
     }
 
     /**

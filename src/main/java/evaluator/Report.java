@@ -5,6 +5,7 @@ import de.jplag.JPlagResult;
 import evaluator.annotations.Test;
 import evaluator.messages.Result;
 import extensions.DisjointSet;
+import extensions.Extensions;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Serializable;
@@ -14,11 +15,15 @@ public class Report implements Iterable<Report.Entry>, Serializable {
 
     public record Entry(Submission submission, Map<Test, Set<Result>> results, double grade) {
 
+        private static boolean hidden(Result result) {
+            return result.getClass().isAnnotationPresent(Result.DoNotShowInReport.class);
+        }
+
         public Map<String, Integer> getErrorCountPerCode() {
                 Map<String, Integer> map = new HashMap<>();
                 for (Test test : results.keySet()) {
                     for (Result result : results.get(test)) {
-                        if (!result.passed())
+                        if (!result.passed() && !hidden(result))
                             map.put(result.errorCode(), map.getOrDefault(result.errorCode(), 0) + 1);
                     }
                 }
@@ -29,7 +34,7 @@ public class Report implements Iterable<Report.Entry>, Serializable {
                 Set<String> set = new TreeSet<>();
                 for (Test test : results.keySet()) {
                     for (Result result : results.get(test)) {
-                        if (!result.passed())
+                        if (!result.passed() && !hidden(result))
                             set.add(result.errorCode());
                     }
                 }
@@ -40,7 +45,9 @@ public class Report implements Iterable<Report.Entry>, Serializable {
                 List<String> list = new ArrayList<>();
                 for (Test test : results.keySet()) {
                     for (Result result : results.get(test)) {
-                        if (!result.passed() || result.getClass().isAnnotationPresent(Result.AlwaysShowInReport.class)) {
+                        if (result.getMessage() == null)
+                            continue;
+                        if ((!result.passed() && !hidden(result)) || result.getClass().isAnnotationPresent(Result.AlwaysShowInReport.class)) {
                             if (result.getTest() == null)
                                 list.add(result.getMessage());
                             else
@@ -53,11 +60,8 @@ public class Report implements Iterable<Report.Entry>, Serializable {
         }
 
     private final String description;
-
     private final List<Entry> entries;
-
     private JPlagResult plagiarismAnalysis;
-
     private Iterable<Set<de.jplag.Submission>> equalCodeClusters;
 
     public Report() {
@@ -110,8 +114,17 @@ public class Report implements Iterable<Report.Entry>, Serializable {
         return plagiarismAnalysis != null && equalCodeClusters != null;
     }
 
-    public Iterable<Set<de.jplag.Submission>> getTotalPlagiarismClusters() {
+    public Iterable<Set<de.jplag.Submission>> getTotalPlagiarismClusters(boolean sorted) {
+        if (sorted) {
+            List<Set<de.jplag.Submission>> result = Extensions.copy(equalCodeClusters);
+            result.sort(Comparator.comparing(Set::size));
+            return result;
+        }
         return equalCodeClusters;
+    }
+
+    public Iterable<Set<de.jplag.Submission>> getTotalPlagiarismClusters() {
+        return getTotalPlagiarismClusters(false);
     }
 
     private de.jplag.Submission getJPlagSubmission(Entry entry) {

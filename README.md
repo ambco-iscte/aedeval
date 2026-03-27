@@ -67,9 +67,13 @@ public class MyTester extends Tester {
 ```
 
 The `@Require` annotation takes an array of file names for each Java source code file required to run the test case.
-
 The `@Test` annotation defines the test case's description, its weight, which counts towards the submission's grade,
 and, optionally, a penalty, which gets subtracted from the submission's grade should the test case fail.
+
+> [!IMPORTANT]
+> By default, students are restricted to using classes and methods from the `java.lang` package. Any usages from classes of other packages result in automatic test failure.
+> This is done to prevent: (1) using built-in functions which trivialise assignments; and (2) ill-intentioned students from making damaging calls to the system running the evaluator.
+> **To enable usage of features from other packages, you may annotate your tester classes with the [AllowedPackages](src/main/java/evaluator/annotations/AllowedPackages.java)** annotation.
 
 </details>
 
@@ -265,7 +269,22 @@ invoke(before, d3, d1).assertEquals(true);  // assert d3.before(d1) == true
 invoke(before, d3, d2).assertEquals(true);  // assert d3.before(d2) == true
 invoke(before, d3, d3).assertEquals(false); // assert d3.before(d3) == false
 ```
-The `invoke` function takes a `Method`, then the calling object, and finally a sequence of arguments. A static method (no calling object) might look like `invoke(foo, null, arg1, arg2, ...).`
+The `invoke` function takes a `Method`, then the calling object, and finally a sequence of arguments. A static method (no calling object) might look like `invoke(foo, null, arg1, arg2, ...)`.
+
+The `assertEquals` function does just what it says - it compares the result of the function call with its expected value.
+There are several types of function call result assertions available within Tester classes:
+1. `assertEquals`, which we've seen;
+2. `assertEqualsAny` checks whether the result is one of any number of alternatives;
+3. `assertIsPermutation` checks whether the result (usually a collection of elements) is a permutation of a given sequence of values;
+4. `assertContentEquals` checks whether the result (usually a collection of elements) has exactly the same elements and in the same order as a given sequence of values;
+5. `assertProducesSideEffect` checks whether a function call produces an intended side effect (see some existing [side effects](src/main/java/evaluator/sideeffects) for details);
+6. `assertThrows` checks whether a function call throws a given expected exception;
+7. `assertDoesNotThrow` checks whether a function call does not throw any exceptions;
+
+> [!IMPORTANT]  
+> **By default, failed assertions do not terminate the test case immediately**. A test case may execute to the end
+> even if some of its function call result assertions fail. This is done to prevent unfair scoring when a test case
+> fails early but succeeds later assertions. However, **if you want a failed assertion to immediately fail the entire test case, you may use the `orFail` version of any of the first 5 assertions in the list above (e.g., `assertEqualsOrFail`)**.
 
 All together, the test case might look like this: 👇
 

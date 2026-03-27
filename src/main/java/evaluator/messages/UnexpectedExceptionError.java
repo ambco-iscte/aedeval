@@ -53,13 +53,17 @@ public class UnexpectedExceptionError extends Result {
     @Override
     public String getMessage() {
         String expectedMessage = switch (equalsType) {
-            case EXACT -> "Expected <" + Extensions.toStringOrDefault(expected) + ">";
-            case ANY -> "Expected one of " + Extensions.toStringOrDefault(expected);
-            case PERMUTATION -> "Expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
-            case CONTENT -> "Expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
+            case EXACT -> "expected <" + Extensions.toStringOrDefault(expected) + ">";
+            case ANY -> "expected one of " + Extensions.toStringOrDefault(expected);
+            case PERMUTATION -> "expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
+            case CONTENT -> "expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
         };
 
-        return call.toStringWithHistoryOrDefault() + " returned wrong result: " +
-                expectedMessage + " but threw " + exception.getClass().getSimpleName() + ": " + exception.getMessage();
+        return "%s returned wrong result: %s but threw an unexpected %s%s".formatted(
+            call.toStringWithHistoryOrDefault(),
+            expectedMessage,
+            exception.getClass().getSimpleName(),
+            exception.getMessage() == null ? "" : ": " + exception.getMessage()
+        );
     }
 }

@@ -3,10 +3,7 @@ package loading;
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.PackageDeclaration;
+import com.github.javaparser.ast.*;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -34,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import static extensions.Extensions.tryOrElse;
 
@@ -175,29 +173,72 @@ public final class Source {
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    public static Path renamePrimaryType(final CompilationUnit unit, File file, String name) throws IOException {
-        CompilationUnit cu = unit == null ? tryOrElse(() -> StaticJavaParser.parse(file), null) : unit;
+    public static Path renameType(final CompilationUnit unit, File file, String type, String name) throws IOException {
+        CompilationUnit cu = unit == null ? StaticJavaParser.parse(file) : unit;
         if (cu == null)
             return null;
 
-        final TypeDeclaration<?> primary = findTypeWithName(cu, extensions.Files.getNameWithoutExtension(file));
-        if (primary == null)
+        final TypeDeclaration<?> target = findTypeWithName(cu, type);
+        if (target == null)
             return null;
 
-        if (primary.getNameAsString().equals(name))
+        if (target.getNameAsString().equals(name))
             return file.toPath();
 
-        cu = (CompilationUnit) new TypeRenamerVisitor(primary).visit(cu, name);
+        cu = (CompilationUnit) new TypeRenamerVisitor(target).visit(cu, name);
         return java.nio.file.Files.writeString(file.toPath(), cu.toString());
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    public static Path renamePrimaryType(File file, String name) throws IOException {
-        return renamePrimaryType(tryOrElse(() -> StaticJavaParser.parse(file), null), file, name);
+    public static Path renameType(File file, String type, String name) throws IOException {
+        return renameType(tryOrElse(() -> StaticJavaParser.parse(file), null), file, type, name);
+    }
+
+    public static String findFirstPublicTypeName(File file) {
+        CompilationUnit unit = tryOrElse(() -> StaticJavaParser.parse(file), null);
+        if (unit == null)
+            return null;
+        return findFirstPublicTypeName(unit);
+    }
+
+    @SuppressWarnings("rawtypes")
+    public static String getCompactClassInnerNameOrDefault(TypeDeclaration<?> type) {
+        if (type.isClassOrInterfaceDeclaration() && type.asClassOrInterfaceDeclaration().isCompact()) {
+            Optional<TypeDeclaration> inner = type.asClassOrInterfaceDeclaration().findFirst(
+                TypeDeclaration.class,
+                (node) -> !node.equals(type)
+            );
+            if (inner.isPresent())
+                return getCompactClassInnerNameOrDefault(inner.get());
+        }
+        return type.getNameAsString();
+    }
+
+    public static TypeDeclaration<?> findFirstPublicType(CompilationUnit unit) {
+        NodeList<TypeDeclaration<?>> types = unit.getTypes();
+        if (types.isEmpty())
+            return null;
+
+        if (types.size() == 1 && types.getFirst().isPresent())
+            return types.getFirst().get();
+
+        for (TypeDeclaration<?> type : types) {
+            if (type.isPublic()) // && hasMainMethod(type))
+                return type;
+        }
+
+        return null;
+    }
+
+    public static String findFirstPublicTypeName(CompilationUnit unit) {
+        TypeDeclaration<?> first = findFirstPublicType(unit);
+        if (first == null)
+            return null;
+        return getCompactClassInnerNameOrDefault(first);
     }
 
     private static TypeDeclaration<?> findTypeWithName(final CompilationUnit unit, String name) {
-        for (TypeDeclaration<?> type : unit.getTypes()) {
+        for (TypeDeclaration<?> type : unit.findAll(TypeDeclaration.class)) {
             if (type.getNameAsString().equals(name))
                 return type;
         }

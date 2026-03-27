@@ -264,86 +264,136 @@ public class Tester extends Reflector {
                 fail();
                 return Optional.of(exception);
 			} else {
-                log(Result.success(currentTest, this + " shouldn't have thrown any exceptions, and it didn't! Hooray!"));
+                log(Result.success(currentTest));
                 return Optional.empty();
             }
 		}
 
-		public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
+        public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
+            return assertProducesSideEffect(checker, false);
+        }
+
+        public boolean assertProducesSideEffectOrFail(SideEffectChecker checker) throws ManualFailureException {
+            return assertProducesSideEffect(checker, true);
+        }
+
+		private boolean assertProducesSideEffect(SideEffectChecker checker, boolean fail) throws ManualFailureException {
 			log(this);
 			Result res = new MethodInvocationSideEffect(currentTest, this, checker);
 			log(res);
-            //if (!res.passed())
-                //fail();
+            if (fail && !res.passed())
+                fail();
 			return res.passed();
 		}
 
-		public Object assertEquals(Object expected) throws ManualFailureException {
+        public Object assertEquals(Object expected) throws ManualFailureException {
+            return assertEquals(expected, false);
+        }
+
+        public Object assertEqualsOrFail(Object expected) throws ManualFailureException {
+            return assertEquals(expected, true);
+        }
+
+		private Object assertEquals(Object expected, boolean fail) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
 				log(res);
-                //if (!res.passed())
-                    //fail();
+                if (fail && !res.passed())
+                    fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-                //fail();
+                if (fail)
+                    fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
-                //fail();
+                if (fail)
+                    fail();
 			}
 			return expected;
 		}
 
-        @SuppressWarnings("unchecked")
         public <T, I extends Iterable<T>> I assertContentEquals(T[] expected) throws ManualFailureException {
+            return assertContentEquals(expected, false);
+        }
+
+        public <T, I extends Iterable<T>> I assertContentEqualsOrFail(T[] expected) throws ManualFailureException {
+            return assertContentEquals(expected, true);
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T, I extends Iterable<T>> I assertContentEquals(T[] expected, boolean fail) throws ManualFailureException {
             log(this);
             if (isSuccess()) {
                 Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
                 log(res);
-                //if (!res.passed())
-                    //fail();
+                if (fail && !res.passed())
+                    fail();
             } else if (exception instanceof TimeoutException) {
                 log(new MethodTimeoutError(currentTest, this));
-                //fail();
+                if (fail)
+                    fail();
             } else if (threwException()) {
                 log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
-                //fail();
+                if (fail)
+                    fail();
             }
             return (I) Arrays.asList(expected);
         }
 
-		public Object assertEqualsAny(Object... expected) throws ManualFailureException {
+        public Object assertEqualsAny(Object... expected) throws ManualFailureException {
+            return assertEqualsAny(false, expected);
+        }
+
+        public Object assertEqualsAnyOrFail(Object... expected) throws ManualFailureException {
+            return assertEqualsAny(true, expected);
+        }
+
+		private Object assertEqualsAny(boolean fail, Object... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.ANY);
 				log(res);
-                //if (!res.passed())
-                    //fail();
+                if (fail && !res.passed())
+                    fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-                //fail();
+                if (fail)
+                    fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
-                //fail();
+                if (fail)
+                    fail();
 			}
 			return expected[0];
 		}
 
-		@SafeVarargs
+        @SafeVarargs
         public final <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
+            return assertIsPermutation(false, expected);
+        }
+
+        @SafeVarargs
+        public final <T> T[] assertIsPermutationOrFail(T... expected) throws ManualFailureException {
+            return assertIsPermutation(true, expected);
+        }
+
+		@SafeVarargs
+        private final <T> T[] assertIsPermutation(boolean fail, T... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
 				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
 				log(res);
-                //if (!res.passed())
-                    //fail();
+                if (fail && !res.passed())
+                    fail();
 			} else if (exception instanceof TimeoutException) {
 				log(new MethodTimeoutError(currentTest, this));
-                //fail();
+                if (fail)
+                    fail();
 			} else if (threwException()) {
 				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
-                //fail();
+                if (fail)
+                    fail();
 			}
 			return expected;
 		}
@@ -460,6 +510,7 @@ public class Tester extends Reflector {
     private Test currentTest;
 	private final Submission submission;
     private double fileNameSimilarityThreshold = 0.8;
+    private final boolean usePreviousCallHistoryGlobal = getClass().isAnnotationPresent(UsePreviousCallHistory.class);
     private final AtomicBoolean silent = new AtomicBoolean(false);
 
 	/**
@@ -512,13 +563,12 @@ public class Tester extends Reflector {
 	}
 
     /**
-     * Executes a task which returns a value without logging any result messages.
+     * Executes a task which returns a value without logging any result messages or throwing any exceptions.
      * @param block Task to execute.
      * @return Task result.
      * @param <T> The result type of the task.
-     * @throws Exception If the task throws an exception during execution.
      */
-    protected <T> Optional<T> quietly(Callable<T> block) throws Exception {
+    protected <T> Optional<T> quietly(Callable<T> block) {
         silent.set(true);
         Optional<T> result = Optional.empty();
         try {
@@ -529,13 +579,12 @@ public class Tester extends Reflector {
     }
 
     /**
-     * Executes a task without logging any result messages.
+     * Executes a task without logging any result messages or throwing any exceptions.
      * @param block Task to execute.
-     * @throws Exception If the task throws an exception during execution.
      */
-    protected void quietly(ThrowingRunnable block) throws Exception {
+    protected void quietly(ThrowingRunnable block) {
         silent.set(true);
-        block.run();
+        try { block.run(); } catch (Exception ignored) { }
         silent.set(false);
     }
 
@@ -550,7 +599,7 @@ public class Tester extends Reflector {
 			log(new ConstructorNotImplementedError(currentTest, type, parameterTypes));
 			fail();
 		} catch (InaccessibleObjectException | SecurityException e) {
-			log(Result.exception(currentTest, e));
+			log(Result.unexpectedException(currentTest, e));
 			fail();
 		}
 		return null;
@@ -614,12 +663,28 @@ public class Tester extends Reflector {
             if (match instanceof SourceLookup.FoundWithSimilarName similar)
                 log(new IncorrectFileNameError(null, javaFile, similar.actual()));
             else if (match instanceof SourceLookup.FoundWithFileAndClassNameMismatch mismatch)
-                log(new FileAndClassNameMismatchError(null, javaFile, mismatch.actual(), mismatch.clazz()));
+                log(new FileAndClassNameMismatchError(
+                    null,
+                    javaFile,
+                    mismatch.actual(),
+                    mismatch.clazz(),
+                    mismatch.isCorrectFileName() ? FileAndClassNameMismatchError.Mismatch.RightFileNameWrongClassName : FileAndClassNameMismatchError.Mismatch.WrongFileNameRightClassName
+                ));
 
+            // Rename File
             File fixed = Path.of(source.getParentFile().getPath(), javaFile).toFile();
             if (!source.getName().equals(javaFile)) {
+                if (source.renameTo(fixed))
+                    source = fixed;
+                else
+                    Console.warning("Failed to rename file " + source.getPath() + ", which does not match " + javaFile);
+            }
+
+            // Rename Class
+            String originalClassName = Source.findFirstPublicTypeName(source);
+            if (!Objects.equals(originalClassName, FilenameUtils.getBaseName(javaFile))) {
                 try {
-                    java.nio.file.Path renamed = Source.renamePrimaryType(source, FilenameUtils.getBaseName(javaFile));
+                    java.nio.file.Path renamed = Source.renameType(source, originalClassName, FilenameUtils.getBaseName(javaFile));
                     if (renamed != null) {
                         source = renamed.toFile();
                         CompilationUnit unit = tryOrElse(() -> StaticJavaParser.parse(renamed), null);
@@ -627,11 +692,8 @@ public class Tester extends Reflector {
                             compilationUnits.putIfAbsent(javaFile, unit);
                     }
                 } catch (IOException e) {
-                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile);
+                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to a JavaParser exception: " + e.getMessage());
                 }
-                if (source.renameTo(fixed)) source = fixed;
-                else
-                    Console.warning("Failed to rename file " + source.getPath() + ", which does not match " + javaFile);
             }
 
             try {
@@ -712,7 +774,7 @@ public class Tester extends Reflector {
 	 * @param args The arguments to pass to the method call.
 	 */
 	protected MethodCall invoke(Method method, Object object, Object... args) {
-		return new MethodCall(method, object, args, false);
+		return new MethodCall(method, object, args, usePreviousCallHistoryGlobal);
 	}
 
     /**
@@ -791,18 +853,18 @@ public class Tester extends Reflector {
 				test.invoke(this);
 			} catch (InvocationTargetException e) {
 				Throwable target = e.getTargetException();
-
-				if (target instanceof ManualFailureException ex && ex.getMessage() != null)
-					log(Result.failedRequirement(currentTest, ex.getMessage()));
-				else if (target instanceof NoSuchMethodException ex)
-					log(new MethodNotImplementedError(currentTest, ex));
-				else if (target instanceof NoSuchFieldException ex)
-					log(new AttributeNotImplementedError(currentTest, ex));
-				else if (target instanceof NoClassDefFoundError ex)
-					log(new ReferencedClassNotFoundError(currentTest, ex));
-				else if (!(target instanceof ManualFailureException))  {
-					log(Result.exception(currentTest, target));
-				}
+                switch (target) {
+                    case ManualFailureException ex -> {
+                        if (ex.getMessage() != null)
+                            log(Result.failedRequirement(currentTest, ex.getMessage()));
+                        else
+                            log(Result.failure(currentTest));
+                    }
+                    case NoSuchMethodException ex -> log(new MethodNotImplementedError(currentTest, ex));
+                    case NoSuchFieldException ex -> log(new AttributeNotImplementedError(currentTest, ex));
+                    case NoClassDefFoundError ex -> log(new ReferencedClassNotFoundError(currentTest, ex));
+                    case null, default -> log(Result.unexpectedException(currentTest, target));
+                }
 			} catch (Throwable ignored) { }
 		}
 	}
@@ -824,9 +886,22 @@ public class Tester extends Reflector {
 		    throw new ManualFailureException(null);
 	}
 
-    protected void warn(String message) {
+    /**
+     * Issues a warning with a given message (equivalent to a non-test terminating failure message).
+     * @param message Warning message.
+     * @param global True if the warning is not related to a particular test; False, otherwise.
+     */
+    protected void warn(String message, boolean global) {
         if (!silent.get())
-            log(Result.warning(null, message));
+            log(Result.warning(global ? null : currentTest, message));
+    }
+
+    /**
+     * Issues a warning with a given message (equivalent to a non-test terminating failure message).
+     * @param message Warning message.
+     */
+    protected void warn(String message) {
+        warn(message, true);
     }
 
     /**
@@ -834,7 +909,7 @@ public class Tester extends Reflector {
      */
     protected void ok() {
         if (!silent.get())
-            log(Result.success(currentTest, null));
+            log(Result.success(currentTest));
     }
 
 	protected void assertTrue(boolean condition, String failMessage) throws ManualFailureException {
@@ -884,7 +959,7 @@ public class Tester extends Reflector {
                 if (test == null)
                     Console.warning("Cannot compute grade for null test with results: " + Extensions.joinToString("; ", res));
                 else {
-                    if (correct == 0 || res.stream().anyMatch(Result::isFailedRequirement))
+                    if (correct == 0 || res.stream().anyMatch(Result::isFailure))
                         grade = Math.max(0.0, grade - test.penalty());
                     else grade += ((double) correct / total) * test.weight();
                 }
