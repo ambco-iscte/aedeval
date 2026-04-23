@@ -23,8 +23,8 @@ public class CheckIterableIsSorted<T extends Comparable<? super T>> implements T
     @Override
     public String message(boolean success) {
         String order = ascending ? "ascending" : "descending";
-        String isSorted = success ? "sorted" : "not sorted";
-        return "the " + iterable.getClass().getSimpleName() + " " + Extensions.toStringOrDefault(iterable) + " is " + isSorted + " in " + order + " order.";
+        String isSorted = success ? "sorted" : "not sorted (but it should be)";
+        return "the " + iterable.getClass().getSimpleName() + " " + Extensions.toStringOrDefault(iterable) + " is " + isSorted + " in " + order + " order";
     }
 
     @Override

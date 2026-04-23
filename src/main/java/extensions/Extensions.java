@@ -10,6 +10,38 @@ import java.util.function.Predicate;
 
 public class Extensions {
 
+    public static <T> boolean any(T[] elements, Predicate<T> predicate) {
+        for (T element : elements) {
+            if (predicate.test(element))
+                return true;
+        }
+        return false;
+    }
+
+    public static <T> boolean any(Iterable<T> elements, Predicate<T> predicate) {
+        for (T element : elements) {
+            if (predicate.test(element))
+                return true;
+        }
+        return false;
+    }
+
+    public static <T> boolean all(T[] elements, Predicate<T> predicate) {
+        for (T element : elements) {
+            if (!predicate.test(element))
+                return false;
+        }
+        return true;
+    }
+
+    public static <T> boolean all(Iterable<T> elements, Predicate<T> predicate) {
+        for (T element : elements) {
+            if (!predicate.test(element))
+                return false;
+        }
+        return true;
+    }
+
     public static <K, V> Map<K, V> filter(Map<K, V> map, BiPredicate<K, V> predicate) {
         Map<K, V> result = new LinkedHashMap<>();
         for (K key : map.keySet()) {
@@ -127,6 +159,26 @@ public class Extensions {
             list.add(item);
         }
         return list;
+    }
+
+    public static Object clone(Object o) {
+        if (o == null)
+            return null;
+
+        if (o.getClass().isArray())
+            return Arrays.copyOf((Object[]) o, ((Object[]) o).length);
+
+        try {
+            if (Iterable.class.isAssignableFrom(o.getClass()))
+                return Extensions.copy((Iterable<?>) o);
+            if (Cloneable.class.isAssignableFrom(o.getClass())) {
+                Method objectClone = tryOrElse(() -> o.getClass().getDeclaredMethod("clone"), null);
+                if (objectClone != null)
+                    return objectClone.invoke(o);
+            }
+        } catch (Throwable ignored) { }
+
+        return o;
     }
 
     public static <T> boolean hasNoDuplicates(Iterable<T> sorted) {
@@ -348,6 +400,12 @@ public class Extensions {
                 return o.getClass().getSimpleName() + "@" + System.identityHashCode(o);
             }
         }
+    }
+
+    public static String toStringDefault(Object o) {
+        if (o == null)
+            return "null";
+        return o.getClass().getSimpleName() + "@" + System.identityHashCode(o);
     }
 
     public static String stringify(Object object) {

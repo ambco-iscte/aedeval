@@ -25,6 +25,7 @@ import loading.javaparser.*;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -114,7 +115,14 @@ public final class Source {
         cu = (CompilationUnit) new MainMethodRemover().visit(cu, null);
 
         // Remove System and IO calls
-        cu = (CompilationUnit) new SystemCallRemover().visit(cu, null);
+        Method[] allowedSystemCalls = new Method[0];
+        try {
+            allowedSystemCalls = new Method[] {
+                java.lang.System.class.getDeclaredMethod("currentTimeMillis"),
+                java.lang.System.class.getDeclaredMethod("nanoTime"),
+            };
+        } catch (NoSuchMethodException ignored) { }
+        cu = (CompilationUnit) new SystemCallRemover(allowedSystemCalls).visit(cu, null);
 
         // Match constructor definitions to declaring class
         cu = (CompilationUnit) new ConstructorValidator().visit(cu, null);
@@ -137,13 +145,15 @@ public final class Source {
         // Did the student use illegal packages? Throw an exception.
         Map<String, Node[]> illegalPackageUsages = remover.getProhibitedUsages();
         if (!illegalPackageUsages.isEmpty())
-            throw new PackageNotAllowedException(illegalPackageUsages ,allowedPackages);
+            throw new PackageNotAllowedException(illegalPackageUsages, allowedPackages);
 
         // Remove unused imports (hopefully doesn't break anything)
-        UnusedImportCollector visitor = new UnusedImportCollector(cu);
+        ImportStatementCollector visitor = new ImportStatementCollector(cu, allowedPackages);
         visitor.visit(cu, null);
         for (ImportDeclaration imp : visitor.getUnused())
             cu.remove(imp);
+        for (ImportDeclaration imp : visitor.getMissing())
+            cu = cu.addImport(imp);
 
         return cu;
     }
@@ -152,9 +162,9 @@ public final class Source {
      * Processes a Java source code file by:
      * <ul>
      *     <li>Removing the main method, if present;</li>
-     *     <li>Adding brackets to all control structures, if the body is a single expression;</li>
      *     <li>Removing any calls to methods in the System or IO classes.</li>
      *     <li>Removing any usages of not-allowed packages.</li>
+     *     <li>Removing unused imports and adding missing imports.</li>
      * </ul>
      * @param source Java source code file.
      * @param allowedPackages Names of allowed packages.
@@ -173,7 +183,7 @@ public final class Source {
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    public static Path renameType(final CompilationUnit unit, File file, String type, String name) throws IOException {
+    public static Path renameType(final CompilationUnit unit, File file, String type, String name) throws ParseProblemException, IOException {
         CompilationUnit cu = unit == null ? StaticJavaParser.parse(file) : unit;
         if (cu == null)
             return null;
@@ -190,7 +200,7 @@ public final class Source {
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    public static Path renameType(File file, String type, String name) throws IOException {
+    public static Path renameType(File file, String type, String name) throws ParseProblemException, IOException {
         return renameType(tryOrElse(() -> StaticJavaParser.parse(file), null), file, type, name);
     }
 

@@ -17,13 +17,13 @@ public class Reflector {
 
     private static final long TIMEOUT_MILLISECONDS = 5000;
 
-    protected static class None {
-        private None() throws IllegalAccessException {
-            throw new IllegalAccessException("No None instances for you!");
+    protected static final class None {
+        private None() {
+            // No None instances for you!
         }
     }
 
-    protected static None NONE;
+    protected static final None NONE = new None();
 
     private static final ExecutorService HANDLER = Executors.newCachedThreadPool();
 

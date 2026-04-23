@@ -2,6 +2,7 @@ package evaluator;
 
 import extensions.out.Console;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Callable;
 
@@ -28,7 +29,7 @@ public record TesterDispatcher(
             test.setFileNameSimilarityThreshold(fileNameSimilarityThreshold);
             test.runAllTests();
             return test;
-        } catch (Exception e) {
+        } catch (IOException e) {
             return null;
         }
     }

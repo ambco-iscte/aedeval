@@ -22,6 +22,9 @@ public class UnexpectedExceptionError extends Result {
                 throw new IllegalArgumentException("Expected value should be an array or Iterable collection of elements, but is " + expected.getClass() + "!");
         }
 
+        if (equalsType == MethodInvocationResult.EqualsType.TYPEOF && !Class.class.isAssignableFrom(expected.getClass()))
+            throw new IllegalArgumentException("Expected value should be a java.lang.Class, but is " + expected.getClass().getCanonicalName() + "!");
+
         this.call = call;
         this.expected = expected;
         this.exception = exception;
@@ -57,6 +60,8 @@ public class UnexpectedExceptionError extends Result {
             case ANY -> "expected one of " + Extensions.toStringOrDefault(expected);
             case PERMUTATION -> "expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
             case CONTENT -> "expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
+            case NOTNULL -> "expected a non-null value";
+            case TYPEOF -> "expected a value of type " + ((Class<?>) expected).getCanonicalName();
         };
 
         return "%s returned wrong result: %s but threw an unexpected %s%s".formatted(

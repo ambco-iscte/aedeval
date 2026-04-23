@@ -48,10 +48,7 @@ public class Report implements Iterable<Report.Entry>, Serializable {
                         if (result.getMessage() == null)
                             continue;
                         if ((!result.passed() && !hidden(result)) || result.getClass().isAnnotationPresent(Result.AlwaysShowInReport.class)) {
-                            if (result.getTest() == null)
-                                list.add(result.getMessage());
-                            else
-                                list.add("[" + result.getTest().description() + "] " + result.getMessage());
+                            list.add("➤ " + result.getMessage());
                         }
                     }
                 }

@@ -15,7 +15,9 @@ public class MethodInvocationResult extends Result {
         EXACT,          // Result should equal this exact value
         ANY,            // Result should equal any of the values in an array/Iterable
         PERMUTATION,    // Result should be a permutation of the given array/Iterable
-        CONTENT         // Result should be an array/Iterable with the same content as the given array/Iterable
+        CONTENT,        // Result should be an array/Iterable with the same content as the given array/Iterable,
+        NOTNULL,        // Result should be non-null
+        TYPEOF          // Result should be of a given type
     }
 
     private final Tester.MethodCall call;
@@ -28,8 +30,11 @@ public class MethodInvocationResult extends Result {
 
         if (equalsType == EqualsType.CONTENT || equalsType == EqualsType.PERMUTATION || equalsType == EqualsType.ANY) {
             if (expected != null && !expected.getClass().isArray() && !Iterable.class.isAssignableFrom(expected.getClass()))
-                throw new IllegalArgumentException("Expected value should be an array or Iterable collection of elements, but is " + expected.getClass() + "!");
+                throw new IllegalArgumentException("Expected value should be an array or Iterable collection of elements, but is " + expected.getClass().getCanonicalName() + "!");
         }
+
+        if (equalsType == EqualsType.TYPEOF && !Class.class.isAssignableFrom(expected.getClass()))
+            throw new IllegalArgumentException("Expected value should be a java.lang.Class, but is " + expected.getClass().getCanonicalName() + "!");
 
         this.call = call;
         this.expected = expected;
@@ -72,8 +77,19 @@ public class MethodInvocationResult extends Result {
 
                 return Arrays.equals(Extensions.toArray(expected), Extensions.toArray(actual));
             }
+
+            case NOTNULL -> {
+                return actual != null;
+            }
+
+            case TYPEOF -> {
+                return actual != null && ((Class<?>) expected).isAssignableFrom(actual.getClass());
+            }
+
+            default -> {
+                return false;
+            }
         }
-        return false;
     }
 
     public Tester.MethodCall getMethodCall() {
@@ -95,6 +111,8 @@ public class MethodInvocationResult extends Result {
             case ANY -> "expected one of " + Extensions.toStringOrDefault(expected);
             case PERMUTATION -> "expected a permutation of <" + Extensions.toStringOrDefault(expected) + ">";
             case CONTENT -> "expected content to be <" + Extensions.toStringOrDefault(expected) + ">";
+            case NOTNULL -> "expected a non-null value";
+            case TYPEOF -> "expected a value of type " + ((Class<?>) expected).getCanonicalName();
         };
 
         if (passed())

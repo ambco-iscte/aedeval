@@ -15,7 +15,7 @@ public class CheckIterableIsNotSorted<T extends Comparable<? super T>> implement
 
     @Override
     public String message(boolean success) {
-        String isSorted = success ? "not sorted" : "sorted (it shouldn't be)";
+        String isSorted = success ? "not sorted" : "sorted (but it shouldn't be)";
         return "the " + iterable.getClass().getSimpleName() + " " + Extensions.toStringOrDefault(iterable) + " is " + isSorted;
     }
 

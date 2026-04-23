@@ -1,5 +1,6 @@
 package evaluator;
 
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -68,14 +69,24 @@ public class Tester extends Reflector {
 		boolean check() throws Exception;
 	}
 
+    @FunctionalInterface
+    public interface InternalStructureEqualityChecker<T> {
+        boolean check(T expected, Object actual);
+    }
+
 	public class ObjectInstantiation {
 
+        private final Test test;
 		private final Constructor<?> constructor;
 		private final Object[] initArgs;
 
         private ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
+            this.test = currentTest;
 			this.constructor = constructor;
-			this.initArgs = initArgs;
+
+            this.initArgs = new Object[initArgs.length];
+            for (int i = 0; i < initArgs.length; i++)
+                this.initArgs[i] = Extensions.clone(initArgs[i]);
 		}
 
 		public Object getOrThrow() throws ExecutionException, InterruptedException, TimeoutException {
@@ -87,7 +98,7 @@ public class Tester extends Reflector {
 				return getInstance(constructor, initArgs);
 			}
 			catch (TimeoutException e) {
-				log(new ObjectInstantiationError(currentTest, constructor.getDeclaringClass(), initArgs, e));
+				log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, e));
 				fail();
 				return null;
 			}
@@ -96,7 +107,7 @@ public class Tester extends Reflector {
 				Throwable error = e;
 				if (e instanceof ExecutionException) error = e.getCause();
 
-				log(new ObjectInstantiationError(currentTest, constructor.getDeclaringClass(), initArgs, error));
+				log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, error));
 				fail();
 				return null;
 			}
@@ -112,7 +123,7 @@ public class Tester extends Reflector {
 				else thrown = e;
 			}
 			if (thrown == null || !exception.isAssignableFrom(thrown.getClass()))
-				log(new ConstructorMissingExceptionError<>(currentTest, this, exception, null));
+				log(new ConstructorMissingExceptionError<>(test, this, exception, null));
 		}
 
 		@Override
@@ -123,6 +134,7 @@ public class Tester extends Reflector {
 
 	public class MethodCall {
 
+        private final Test test;
 		private final Method method;
 		private final Object caller;
 		private final Object[] arguments;
@@ -134,38 +146,24 @@ public class Tester extends Reflector {
         private final long timestamp;
 
         private MethodCall(Method method, Object caller, Object[] arguments, boolean includeMethodCallHistory) {
+            this.test = currentTest;
             this.method = method;
-            this.caller = caller;
 
             this.includeMethodCallHistory = includeMethodCallHistory;
             this.timestamp = System.nanoTime();
 
             if (includeMethodCallHistory)
-                this.previous = invocations.get(currentTest).stream().filter(call -> call.wasBefore(this)).toList();
+                this.previous = invocations.get(test).stream().filter(call -> call.wasBefore(this)).toList();
             else
                 this.previous = Collections.emptyList();
 
+            this.caller = Extensions.clone(caller);
             this.arguments = new Object[arguments.length];
-            for (int i = 0; i < arguments.length; i++) {
-                Object argument = arguments[i];
-                if (argument != null && argument.getClass().isArray())
-                    this.arguments[i] = Arrays.copyOf((Object[]) argument, ((Object[]) argument).length);
-                else if (argument != null && Iterable.class.isAssignableFrom(argument.getClass()))
-                    this.arguments[i] = Extensions.copy((Iterable<?>) argument);
-                else
-                    this.arguments[i] = argument;
-            }
+            for (int i = 0; i < arguments.length; i++)
+                this.arguments[i] = Extensions.clone(arguments[i]);
 
             try {
-                Object res = getInvocationResult(method, caller, arguments);
-                if (res == null)
-                    this.result = null;
-                else if (res.getClass().isArray())
-                    this.result = Arrays.copyOf((Object[]) res, ((Object[]) res).length);
-                else if (Iterable.class.isAssignableFrom(res.getClass()))
-                    this.result = Extensions.copy((Iterable<?>) res);
-                else
-                    this.result = res;
+                this.result = Extensions.clone(getInvocationResult(method, caller, arguments));
             } catch (ExecutionException ex) {
                 this.exception = ex.getCause();
             } catch (Throwable ex) {
@@ -178,7 +176,7 @@ public class Tester extends Reflector {
         }
 
 		public boolean isSuccess() {
-			return result != NONE && exception == null;
+			return !Objects.equals(result, NONE) && exception == null;
 		}
 
 		public boolean threwException() {
@@ -199,7 +197,7 @@ public class Tester extends Reflector {
 
 		public Object getOrFail() throws ManualFailureException {
 			log(this);
-			if (result != NONE)
+			if (!Objects.equals(result, NONE))
 				return result;
 			fail();
 			return null;
@@ -207,7 +205,7 @@ public class Tester extends Reflector {
 
 		public Object getOrFail(String message) throws ManualFailureException {
 			log(this);
-			if (result != NONE)
+			if (!Objects.equals(result, NONE))
 				return result;
 			fail(message);
 			return null;
@@ -238,36 +236,52 @@ public class Tester extends Reflector {
 		}
 
 		public <T extends Throwable> void assertThrows(Class<T> type) throws ManualFailureException {
-			log(this);
-			if (isSuccess()) {
-				log(new MethodMissingExceptionError<>(currentTest, this, type, result));
-				fail();
-			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(currentTest, this));
-                fail();
-			} else if (threwException()) {
-				Result res = new MethodInvocationException<>(currentTest, this, type, exception.getClass());
-				log(res);
-                if (!res.passed())
-                    fail();
-			}
+            assertThrows(type, false);
 		}
 
+        public <T extends Throwable> void assertThrowsOrFail(Class<T> type) throws ManualFailureException {
+            assertThrows(type, true);
+        }
+
+        private <T extends Throwable> void assertThrows(Class<T> type, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                log(new MethodMissingExceptionError<>(test, this, type, result));
+                if (fail) fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail) fail();
+            } else if (threwException()) {
+                Result res = new MethodInvocationException<>(test, this, type, exception.getClass());
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            }
+        }
+
 		public Optional<Throwable> assertDoesNotThrow() throws ManualFailureException {
-			log(this);
-			if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(currentTest, this));
-                fail();
+			return assertDoesNotThrow(false);
+		}
+
+        public Optional<Throwable> assertDoesNotThrowOrFail() throws ManualFailureException {
+            return assertDoesNotThrow(true);
+        }
+
+        private Optional<Throwable> assertDoesNotThrow(boolean fail) throws ManualFailureException {
+            log(this);
+            if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail) fail();
                 return Optional.of(exception);
-			} else if (threwException()) {
-				log(new AssertDoesNotThrowFailedError(currentTest, this, exception));
-                fail();
+            } else if (threwException()) {
+                log(new AssertDoesNotThrowFailedError(test, this, exception));
+                if (fail) fail();
                 return Optional.of(exception);
-			} else {
-                log(Result.success(currentTest));
+            } else {
+                log(Result.success(test));
                 return Optional.empty();
             }
-		}
+        }
 
         public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
             return assertProducesSideEffect(checker, false);
@@ -278,13 +292,67 @@ public class Tester extends Reflector {
         }
 
 		private boolean assertProducesSideEffect(SideEffectChecker checker, boolean fail) throws ManualFailureException {
-			log(this);
-			Result res = new MethodInvocationSideEffect(currentTest, this, checker);
-			log(res);
+            log(this);
+            Result res = new MethodInvocationSideEffect(test, this, checker);
+            log(res);
             if (fail && !res.passed())
                 fail();
-			return res.passed();
+            return res.passed();
 		}
+
+        public Object assertNotNull() throws ManualFailureException {
+            return assertNotNull(false);
+        }
+
+        public Object assertNotNullOrFail() throws ManualFailureException {
+            return assertNotNull(true);
+        }
+
+        private Object assertNotNull(boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, null, result, MethodInvocationResult.EqualsType.NOTNULL);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedExceptionError(test, this, null, exception, MethodInvocationResult.EqualsType.NOTNULL));
+                if (fail)
+                    fail();
+            }
+            return result;
+        }
+
+        public <T> T assertIsInstance(Class<T> type) throws ManualFailureException {
+            return assertIsInstance(type, false);
+        }
+
+        public <T> T assertIsInstanceOrFail(Class<T> type) throws ManualFailureException {
+            return assertIsInstance(type, true);
+        }
+
+        private <T> T assertIsInstance(Class<T> type, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, type, result, MethodInvocationResult.EqualsType.TYPEOF);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedExceptionError(test, this, type, exception, MethodInvocationResult.EqualsType.TYPEOF));
+                if (fail)
+                    fail();
+            }
+            return type.cast(result);
+        }
 
         public Object assertEquals(Object expected) throws ManualFailureException {
             return assertEquals(expected, false);
@@ -297,16 +365,16 @@ public class Tester extends Reflector {
 		private Object assertEquals(Object expected, boolean fail) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
+				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
 				log(res);
                 if (fail && !res.passed())
                     fail();
 			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(currentTest, this));
+				log(new MethodTimeoutError(test, this));
                 if (fail)
                     fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
+				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
                 if (fail)
                     fail();
 			}
@@ -325,16 +393,16 @@ public class Tester extends Reflector {
         private <T, I extends Iterable<T>> I assertContentEquals(T[] expected, boolean fail) throws ManualFailureException {
             log(this);
             if (isSuccess()) {
-                Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
+                Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
                 log(res);
                 if (fail && !res.passed())
                     fail();
             } else if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(currentTest, this));
+                log(new MethodTimeoutError(test, this));
                 if (fail)
                     fail();
             } else if (threwException()) {
-                log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
+                log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
                 if (fail)
                     fail();
             }
@@ -352,16 +420,16 @@ public class Tester extends Reflector {
 		private Object assertEqualsAny(boolean fail, Object... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.ANY);
+				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.ANY);
 				log(res);
                 if (fail && !res.passed())
                     fail();
 			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(currentTest, this));
+				log(new MethodTimeoutError(test, this));
                 if (fail)
                     fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
+				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
                 if (fail)
                     fail();
 			}
@@ -382,42 +450,50 @@ public class Tester extends Reflector {
         private final <T> T[] assertIsPermutation(boolean fail, T... expected) throws ManualFailureException {
 			log(this);
 			if (isSuccess()) {
-				Result res = new MethodInvocationResult(currentTest, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
+				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
 				log(res);
                 if (fail && !res.passed())
                     fail();
 			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(currentTest, this));
+				log(new MethodTimeoutError(test, this));
                 if (fail)
                     fail();
 			} else if (threwException()) {
-				log(new UnexpectedExceptionError(currentTest, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
+				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
                 if (fail)
                     fail();
 			}
 			return expected;
 		}
 
+        private String toStringAsync(Object o) {
+            try {
+                return async(() -> Extensions.toStringOrDefault(o));
+            } catch (ExecutionException | InterruptedException | TimeoutException e) {
+                return Extensions.toStringDefault(o);
+            }
+        }
+
 		@Override
 		public String toString() {
-			StringBuilder s = new StringBuilder(method.getName() + "(");
-			if (arguments.length > 0) {
-				s.append(Extensions.toStringOrDefault(arguments[0]).trim());
-				for (int i = 1; i < arguments.length; i++)
-					s.append(", ").append(Extensions.toStringOrDefault(arguments[i]).trim());
-			}
-			s.append(")");
-			if (caller != null)
-				return "(" + Extensions.toStringOrDefault(caller).trim() + ")." + s;
-			return s.toString();
-		}
+            StringBuilder s = new StringBuilder(method.getName() + "(");
+            if (arguments.length > 0) {
+                s.append(toStringAsync(arguments[0]).trim());
+                for (int i = 1; i < arguments.length; i++)
+                    s.append(", ").append(toStringAsync(arguments[i]).trim());
+            }
+            s.append(")");
+            if (caller != null)
+                return "(" + toStringAsync(caller).trim() + ")." + s;
+            return s.toString();
+        }
 
         public String toStringWithoutCaller() {
             StringBuilder s = new StringBuilder(method.getName() + "(");
             if (arguments.length > 0) {
-                s.append(Extensions.toStringOrDefault(arguments[0]).trim());
+                s.append(toStringAsync(arguments[0]).trim());
                 for (int i = 1; i < arguments.length; i++)
-                    s.append(", ").append(Extensions.toStringOrDefault(arguments[i]).trim());
+                    s.append(", ").append(toStringAsync(arguments[i]).trim());
             }
             s.append(")");
             return s.toString();
@@ -507,7 +583,7 @@ public class Tester extends Reflector {
 	private final Map<String, Class<?>> compiledTypes = new HashMap<>(); // Only compile class once, reuse if possible
 	private final List<String> invalidClassNames = new ArrayList<>(); // If an error is raised, don't try loading again
     private final Map<String, CompilationUnit> compilationUnits = new HashMap<>();
-    private Test currentTest;
+    private volatile Test currentTest;
 	private final Submission submission;
     private double fileNameSimilarityThreshold = 0.8;
     private final boolean usePreviousCallHistoryGlobal = getClass().isAnnotationPresent(UsePreviousCallHistory.class);
@@ -691,9 +767,13 @@ public class Tester extends Reflector {
                         if (unit != null)
                             compilationUnits.putIfAbsent(javaFile, unit);
                     }
+                } catch (ParseProblemException | IOException ignored) { }
+                /*
+                Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to a JavaParser exception: " + e.getMessage());
                 } catch (IOException e) {
-                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to a JavaParser exception: " + e.getMessage());
+                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to an IO exception: " + e.getMessage());
                 }
+                */
             }
 
             try {
@@ -804,7 +884,7 @@ public class Tester extends Reflector {
 	/**
 	 * Runs all tests in a submission testing class.
 	 */
-	public void runAllTests() throws Exception {
+	public void runAllTests() throws IOException {
 		// Include necessary external files
 		Include include = this.getClass().getAnnotation(Include.class);
 		if (include != null) {
@@ -935,6 +1015,16 @@ public class Tester extends Reflector {
 
     protected boolean isGenericClass(String name) {
         return isGeneric(getClass(name));
+    }
+
+    @SuppressWarnings("unchecked")
+    protected <T> Optional<Iterator<T>> iterator(Object list) throws Exception {
+        return quietly(() -> {
+            Class<?> type = list.getClass();
+            Method iterator = findMethod(type, Iterator.class, "iterator");
+            Object result = invoke(iterator, list).result;
+            return tryOrElse(() -> (Iterator<T>) result, null);
+        });
     }
 
 	private int getPassed(Test test) {

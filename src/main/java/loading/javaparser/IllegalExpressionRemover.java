@@ -84,7 +84,8 @@ public class IllegalExpressionRemover extends ModifierVisitor<Void> {
     }
 
     private boolean isProhibitedMethodCall(Node location, MethodCallExpr n) {
-        if (isProhibitedExpression(location, n.getScope().orElse(null)))
+        Expression scope = n.getScope().orElse(null);
+        if (isProhibitedExpression(location, scope))
             return true;
         else {
             for (Expression argument : n.getArguments()) {

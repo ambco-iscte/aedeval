@@ -4,6 +4,7 @@ import evaluator.Tester;
 import evaluator.annotations.Test;
 
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 public class MethodInvocationSideEffect extends Result {
@@ -14,7 +15,7 @@ public class MethodInvocationSideEffect extends Result {
 
     private final boolean result;
 
-    private final Exception exception;
+    private final Throwable exception;
 
     public MethodInvocationSideEffect(Test test, Tester.MethodCall call, Tester.SideEffectChecker checker) {
         super(test);
@@ -22,11 +23,14 @@ public class MethodInvocationSideEffect extends Result {
         this.checker = checker;
 
         boolean checked;
-        Exception error;
+        Throwable error;
 
         try {
             checked = checker.check();
             error = null;
+        } catch (ExecutionException e) {
+            checked = false;
+            error = e.getCause();
         } catch (Exception e) {
             checked = false;
             error = e;
@@ -44,7 +48,7 @@ public class MethodInvocationSideEffect extends Result {
         return result;
     }
 
-    public Optional<Exception> getException() {
+    public Optional<Throwable> getException() {
         return Optional.ofNullable(exception);
     }
 
