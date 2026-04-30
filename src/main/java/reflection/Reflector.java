@@ -183,48 +183,18 @@ public class Reflector {
     }
 
     /**
-     * Does the parent class contain a nested class with the given name?
-     * @param parent Parent class.
-     * @param nestedClassName Expected name of the nested class.
-     * @return True if the parent class contains a nested class with the given name. False, otherwise.
-     */
-    protected boolean hasNestedClass(Class<?> parent, String nestedClassName) {
-        try {
-            getNestedClass(parent, nestedClassName);
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
-    }
-
-    /**
      * Finds a field in a given class.
-     * @param type The class.
+     * @param owner The class.
      * @param name The field name. Case-insensitive.
      * @return The field, if a matching field is found.
      * @throws NoSuchFieldException If no matching field is found.
      */
-    protected Field getField(Class<?> type, String name) throws NoSuchFieldException {
-        for (Field field : type.getDeclaredFields()) {
-            if (field.getName().equalsIgnoreCase(name))
+    protected Field getField(Class<?> owner, Class<?> fieldType, String name) throws NoSuchFieldException {
+        for (Field field : owner.getDeclaredFields()) {
+            if (field.getName().equalsIgnoreCase(name) && field.getType() == fieldType)
                 return field;
         }
-        throw new NoSuchFieldException(type.getName() + "." + name);
-    }
-
-    /**
-     * Does the class contain a field with the given name?
-     * @param type Target class.
-     * @param name Expected field name.
-     * @return True if the parent class contains a field with the given name. False, otherwise.
-     */
-    protected boolean hasField(Class<?> type, String name) {
-        try {
-            getField(type, name);
-            return true;
-        } catch (NoSuchFieldException e) {
-            return false;
-        }
+        throw new NoSuchFieldException(owner.getSimpleName() + "." + name);
     }
 
     /**
@@ -239,61 +209,17 @@ public class Reflector {
 
     /**
      * Returns an attribute/field of a given class, cast to its appropriate type.
-     * See also: {@link Reflector#getField(Class, String)}.
+     * See also: {@link Reflector#getField(Class, Class, String)}.
      * @param object The object instance.
      * @param name The field name.
      * @return The field, cast to its appropriate type. Essentially: T.cast({@link Reflector#getField}).
      * @throws NoSuchFieldException If no matching field is found.
      * @throws IllegalAccessException If the field cannot be accessed.
      */
-    protected Object getProperty(Object object, String name) throws NoSuchFieldException, IllegalAccessException {
-        Field field = getField(object.getClass(), name);
+    protected <T> T getProperty(Object object, Class<T> fieldType, String name) throws NoSuchFieldException, IllegalAccessException {
+        Field field = getField(object.getClass(), fieldType, name);
         field.setAccessible(true);
-        return field.get(object);
-    }
-
-    // Map object array to array of objects' classes
-    private Class<?>[] getObjectClasses(Object... objects) {
-        if (objects == null) return null;
-        Class<?>[] classes = new Class<?>[objects.length];
-        for (int i = 0; i < classes.length; i++)
-            classes[i] = objects[i].getClass();
-        return classes;
-    }
-
-    /**
-     * Are all the classes in the two class arrays pair-wise equivalent?
-     * See also: {@link Reflector#equivalent(Class, Class)}.
-     * @param first A class array.
-     * @param second Another class array.
-     * @return True if the arrays are the same reference (or both null), or their lengths are the same and all classes
-     * are pair-wise equivalent. False, otherwise.
-     */
-    private boolean allEquivalent(Class<?>[] first, Class<?>[] second) {
-        if (first == second) return true;
-        if (first == null || second == null) return false;
-        if (first.length != second.length) return false;
-
-        for (int i = 0; i < first.length; i++) {
-            if (!equivalent(first[i], second[i])) return false;
-        }
-        return true;
-    }
-
-    /**
-     * Are the two classes equivalent?
-     * @param first The first class.
-     * @param second The second class.
-     * @return True if both arguments are the same reference (or both null) or either of the classes or their wrapper
-     * type(s) is assignable from the other. False, otherwise.
-     */
-    private boolean equivalent(Class<?> first, Class<?> second) {
-        if (first == second) return true;
-
-        if (first.isPrimitive()) first = getPrimitiveWrapperType(first);
-        if (second.isPrimitive()) second = getPrimitiveWrapperType(second);
-
-        return first.isAssignableFrom(second) || second.isAssignableFrom(first);
+        return fieldType.cast(field.get(object));
     }
 
     /**

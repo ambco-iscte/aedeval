@@ -1,7 +1,8 @@
-package evaluator.messages;
+package evaluator.messages.constructors;
 
 import evaluator.Tester;
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
 public class ConstructorMissingExceptionError<T extends Throwable> extends Result {
 

@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.constructors;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 import extensions.Extensions;
 
 public class ConstructorNotImplementedError extends Result {
@@ -18,7 +19,7 @@ public class ConstructorNotImplementedError extends Result {
 
         parameterTypeNames = new String[parameterTypes.length];
         for (int i = 0; i < parameterTypeNames.length; i++)
-            parameterTypeNames[i] = parameterTypes[i].getName();
+            parameterTypeNames[i] = parameterTypes[i].getSimpleName();
     }
 
     public Class<?> getType() {

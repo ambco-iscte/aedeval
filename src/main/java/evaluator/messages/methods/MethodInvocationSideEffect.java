@@ -1,7 +1,8 @@
-package evaluator.messages;
+package evaluator.messages.methods;
 
 import evaluator.Tester;
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -73,7 +74,7 @@ public class MethodInvocationSideEffect extends Result {
         );
 
         if (exception != null) {
-            message += ", because something in your code caused an unexpected " + exception.getClass().getName() + ".";
+            message += ", because something in your code caused an unexpected " + exception.getClass().getSimpleName() + ".";
             if (exception instanceof TimeoutException)
                 message += " Have you checked for infinite loops or unbounded recursion?";
         } else

@@ -108,6 +108,7 @@ public abstract class Result {
         @Override public String getMessage() { return null; }
     }
 
+    @AlwaysShowInReport
     private static class Warning extends Result {
         private final String message;
         private Warning(Test test, String message) {

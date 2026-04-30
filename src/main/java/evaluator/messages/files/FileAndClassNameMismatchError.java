@@ -1,4 +1,4 @@
-package evaluator.messages;
+package evaluator.messages.files;
 
 import evaluator.annotations.Test;
 

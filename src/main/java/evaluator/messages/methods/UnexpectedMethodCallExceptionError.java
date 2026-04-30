@@ -1,28 +1,27 @@
-package evaluator.messages;
+package evaluator.messages.methods;
 
+import evaluator.AssertEqualsType;
 import evaluator.Tester;
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 import extensions.Extensions;
 
-public class UnexpectedExceptionError extends Result {
+public class UnexpectedMethodCallExceptionError extends Result {
 
     private final Tester.MethodCall call;
-
     private final Object expected;
-
     private final Throwable exception;
+    private final AssertEqualsType equalsType;
 
-    private final MethodInvocationResult.EqualsType equalsType;
-
-    public UnexpectedExceptionError(Test test, Tester.MethodCall call, Object expected, Throwable exception, MethodInvocationResult.EqualsType equalsType) {
+    public UnexpectedMethodCallExceptionError(Test test, Tester.MethodCall call, Object expected, Throwable exception, AssertEqualsType equalsType) {
         super(test);
 
-        if (equalsType == MethodInvocationResult.EqualsType.CONTENT || equalsType == MethodInvocationResult.EqualsType.PERMUTATION || equalsType == MethodInvocationResult.EqualsType.ANY) {
+        if (equalsType == AssertEqualsType.CONTENT || equalsType == AssertEqualsType.PERMUTATION || equalsType == AssertEqualsType.ANY) {
             if (expected != null && !expected.getClass().isArray() && !Iterable.class.isAssignableFrom(expected.getClass()))
                 throw new IllegalArgumentException("Expected value should be an array or Iterable collection of elements, but is " + expected.getClass() + "!");
         }
 
-        if (equalsType == MethodInvocationResult.EqualsType.TYPEOF && !Class.class.isAssignableFrom(expected.getClass()))
+        if (equalsType == AssertEqualsType.TYPEOF && !Class.class.isAssignableFrom(expected.getClass()))
             throw new IllegalArgumentException("Expected value should be a java.lang.Class, but is " + expected.getClass().getCanonicalName() + "!");
 
         this.call = call;
@@ -33,7 +32,7 @@ public class UnexpectedExceptionError extends Result {
 
     @Override
     public String errorCode() {
-        return "Unexpected Exception";
+        return "Unexpected Method Exception";
     }
 
     public Tester.MethodCall getMethodCall() {

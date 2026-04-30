@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.constructors;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 import extensions.Extensions;
 
 import java.util.concurrent.TimeoutException;

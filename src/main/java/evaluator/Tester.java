@@ -3,12 +3,23 @@ package evaluator;
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.TypeDeclaration;
 import evaluator.algorithmic.OrderOfGrowth;
 import evaluator.algorithmic.OrderOfGrowthEstimator;
+import evaluator.algorithmic.functions.SymbolicFunction;
 import evaluator.annotations.*;
-import evaluator.messages.*;
+import evaluator.messages.Result;
+import evaluator.messages.RuntimeComplexityEstimation;
+import evaluator.messages.constructors.ConstructorMissingExceptionError;
+import evaluator.messages.constructors.ConstructorNotImplementedError;
+import evaluator.messages.constructors.ObjectInstantiationError;
+import evaluator.messages.files.FileAndClassNameMismatchError;
+import evaluator.messages.files.IncorrectFileNameError;
+import evaluator.messages.files.MissingFileError;
+import evaluator.messages.inspectors.*;
+import evaluator.messages.inspectors.NoSuchFieldError;
+import evaluator.messages.loading.ClassLoadingError;
+import evaluator.messages.loading.CompilationError;
+import evaluator.messages.methods.*;
 import extensions.Extensions;
 import extensions.Files;
 import extensions.Levenshtein;
@@ -22,15 +33,13 @@ import loading.SourceLookup;
 import loading.exceptions.ClassLoadingException;
 import loading.exceptions.CompilationException;
 import org.apache.commons.io.FilenameUtils;
+import org.jspecify.annotations.NonNull;
 import reflection.Reflector;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InaccessibleObjectException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
@@ -57,526 +66,6 @@ import static extensions.Extensions.tryOrElse;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class Tester extends Reflector {
-
-	public static class ManualFailureException extends Exception {
-		public ManualFailureException(String message) {
-			super(message);
-		}
-	}
-
-	public interface SideEffectChecker {
-		String message(boolean success);
-		boolean check() throws Exception;
-	}
-
-    @FunctionalInterface
-    public interface InternalStructureEqualityChecker<T> {
-        boolean check(T expected, Object actual);
-    }
-
-	public class ObjectInstantiation {
-
-        private final Test test;
-		private final Constructor<?> constructor;
-		private final Object[] initArgs;
-
-        private ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
-            this.test = currentTest;
-			this.constructor = constructor;
-
-            this.initArgs = new Object[initArgs.length];
-            for (int i = 0; i < initArgs.length; i++)
-                this.initArgs[i] = Extensions.clone(initArgs[i]);
-		}
-
-		public Object getOrThrow() throws ExecutionException, InterruptedException, TimeoutException {
-			return getInstance(constructor, initArgs);
-		}
-
-		public Object getOrFail() throws ManualFailureException {
-			try {
-				return getInstance(constructor, initArgs);
-			}
-			catch (TimeoutException e) {
-				log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, e));
-				fail();
-				return null;
-			}
-			catch (InterruptedException ignored) {  }
-			catch (Throwable e) {
-				Throwable error = e;
-				if (e instanceof ExecutionException) error = e.getCause();
-
-				log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, error));
-				fail();
-				return null;
-			}
-			return null;
-		}
-
-		public <T extends Throwable> void assertThrows(Class<T> exception) throws ManualFailureException {
-			Throwable thrown = null;
-			try {
-				getInstance(constructor, initArgs);
-            } catch (Throwable e) {
-				if (e instanceof ExecutionException) thrown = e.getCause();
-				else thrown = e;
-			}
-			if (thrown == null || !exception.isAssignableFrom(thrown.getClass()))
-				log(new ConstructorMissingExceptionError<>(test, this, exception, null));
-		}
-
-		@Override
-		public String toString() {
-			return "new " + constructor.getDeclaringClass().getSimpleName() + "(" + Extensions.joinToString(initArgs) + ")";
-		}
-	}
-
-	public class MethodCall {
-
-        private final Test test;
-		private final Method method;
-		private final Object caller;
-		private final Object[] arguments;
-		private Object result = NONE;
-		private Throwable exception = null;
-        private final boolean includeMethodCallHistory;
-
-        private final List<MethodCall> previous;
-        private final long timestamp;
-
-        private MethodCall(Method method, Object caller, Object[] arguments, boolean includeMethodCallHistory) {
-            this.test = currentTest;
-            this.method = method;
-
-            this.includeMethodCallHistory = includeMethodCallHistory;
-            this.timestamp = System.nanoTime();
-
-            if (includeMethodCallHistory)
-                this.previous = invocations.get(test).stream().filter(call -> call.wasBefore(this)).toList();
-            else
-                this.previous = Collections.emptyList();
-
-            this.caller = Extensions.clone(caller);
-            this.arguments = new Object[arguments.length];
-            for (int i = 0; i < arguments.length; i++)
-                this.arguments[i] = Extensions.clone(arguments[i]);
-
-            try {
-                this.result = Extensions.clone(getInvocationResult(method, caller, arguments));
-            } catch (ExecutionException ex) {
-                this.exception = ex.getCause();
-            } catch (Throwable ex) {
-                this.exception = ex;
-            }
-        }
-
-        private boolean wasBefore(MethodCall other) {
-            return this.timestamp < other.timestamp;
-        }
-
-		public boolean isSuccess() {
-			return !Objects.equals(result, NONE) && exception == null;
-		}
-
-		public boolean threwException() {
-			return exception != null;
-		}
-
-        public Optional<Throwable> getException() {
-            return Optional.of(exception);
-        }
-
-        public boolean isStateful() {
-            return includeMethodCallHistory && !previous.isEmpty();
-        }
-
-        public List<MethodCall> getPreviousCalls() {
-            return previous;
-        }
-
-		public Object getOrFail() throws ManualFailureException {
-			log(this);
-			if (!Objects.equals(result, NONE))
-				return result;
-			fail();
-			return null;
-		}
-
-		public Object getOrFail(String message) throws ManualFailureException {
-			log(this);
-			if (!Objects.equals(result, NONE))
-				return result;
-			fail(message);
-			return null;
-		}
-
-		public void assertTrue() throws ManualFailureException {
-			log(this);
-			if (Objects.equals(result, true)) ok();
-			else fail();
-		}
-
-		public void assertTrue(String message) throws ManualFailureException {
-			log(this);
-			if (Objects.equals(result, true)) ok();
-			else fail(message);
-		}
-
-		public void assertFalse() throws ManualFailureException {
-			log(this);
-			if (Objects.equals(result, false)) ok();
-			else fail();
-		}
-
-		public void assertFalse(String message) throws ManualFailureException {
-			log(this);
-			if (Objects.equals(result, false)) ok();
-			else fail(message);
-		}
-
-		public <T extends Throwable> void assertThrows(Class<T> type) throws ManualFailureException {
-            assertThrows(type, false);
-		}
-
-        public <T extends Throwable> void assertThrowsOrFail(Class<T> type) throws ManualFailureException {
-            assertThrows(type, true);
-        }
-
-        private <T extends Throwable> void assertThrows(Class<T> type, boolean fail) throws ManualFailureException {
-            log(this);
-            if (isSuccess()) {
-                log(new MethodMissingExceptionError<>(test, this, type, result));
-                if (fail) fail();
-            } else if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(test, this));
-                if (fail) fail();
-            } else if (threwException()) {
-                Result res = new MethodInvocationException<>(test, this, type, exception.getClass());
-                log(res);
-                if (fail && !res.passed())
-                    fail();
-            }
-        }
-
-		public Optional<Throwable> assertDoesNotThrow() throws ManualFailureException {
-			return assertDoesNotThrow(false);
-		}
-
-        public Optional<Throwable> assertDoesNotThrowOrFail() throws ManualFailureException {
-            return assertDoesNotThrow(true);
-        }
-
-        private Optional<Throwable> assertDoesNotThrow(boolean fail) throws ManualFailureException {
-            log(this);
-            if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(test, this));
-                if (fail) fail();
-                return Optional.of(exception);
-            } else if (threwException()) {
-                log(new AssertDoesNotThrowFailedError(test, this, exception));
-                if (fail) fail();
-                return Optional.of(exception);
-            } else {
-                log(Result.success(test));
-                return Optional.empty();
-            }
-        }
-
-        public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
-            return assertProducesSideEffect(checker, false);
-        }
-
-        public boolean assertProducesSideEffectOrFail(SideEffectChecker checker) throws ManualFailureException {
-            return assertProducesSideEffect(checker, true);
-        }
-
-		private boolean assertProducesSideEffect(SideEffectChecker checker, boolean fail) throws ManualFailureException {
-            log(this);
-            Result res = new MethodInvocationSideEffect(test, this, checker);
-            log(res);
-            if (fail && !res.passed())
-                fail();
-            return res.passed();
-		}
-
-        public Object assertNotNull() throws ManualFailureException {
-            return assertNotNull(false);
-        }
-
-        public Object assertNotNullOrFail() throws ManualFailureException {
-            return assertNotNull(true);
-        }
-
-        private Object assertNotNull(boolean fail) throws ManualFailureException {
-            log(this);
-            if (isSuccess()) {
-                Result res = new MethodInvocationResult(test, this, null, result, MethodInvocationResult.EqualsType.NOTNULL);
-                log(res);
-                if (fail && !res.passed())
-                    fail();
-            } else if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-            } else if (threwException()) {
-                log(new UnexpectedExceptionError(test, this, null, exception, MethodInvocationResult.EqualsType.NOTNULL));
-                if (fail)
-                    fail();
-            }
-            return result;
-        }
-
-        public <T> T assertIsInstance(Class<T> type) throws ManualFailureException {
-            return assertIsInstance(type, false);
-        }
-
-        public <T> T assertIsInstanceOrFail(Class<T> type) throws ManualFailureException {
-            return assertIsInstance(type, true);
-        }
-
-        private <T> T assertIsInstance(Class<T> type, boolean fail) throws ManualFailureException {
-            log(this);
-            if (isSuccess()) {
-                Result res = new MethodInvocationResult(test, this, type, result, MethodInvocationResult.EqualsType.TYPEOF);
-                log(res);
-                if (fail && !res.passed())
-                    fail();
-            } else if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-            } else if (threwException()) {
-                log(new UnexpectedExceptionError(test, this, type, exception, MethodInvocationResult.EqualsType.TYPEOF));
-                if (fail)
-                    fail();
-            }
-            return type.cast(result);
-        }
-
-        public Object assertEquals(Object expected) throws ManualFailureException {
-            return assertEquals(expected, false);
-        }
-
-        public Object assertEqualsOrFail(Object expected) throws ManualFailureException {
-            return assertEquals(expected, true);
-        }
-
-		private Object assertEquals(Object expected, boolean fail) throws ManualFailureException {
-			log(this);
-			if (isSuccess()) {
-				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.EXACT);
-				log(res);
-                if (fail && !res.passed())
-                    fail();
-			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-			} else if (threwException()) {
-				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.EXACT));
-                if (fail)
-                    fail();
-			}
-			return expected;
-		}
-
-        public <T, I extends Iterable<T>> I assertContentEquals(T[] expected) throws ManualFailureException {
-            return assertContentEquals(expected, false);
-        }
-
-        public <T, I extends Iterable<T>> I assertContentEqualsOrFail(T[] expected) throws ManualFailureException {
-            return assertContentEquals(expected, true);
-        }
-
-        @SuppressWarnings("unchecked")
-        private <T, I extends Iterable<T>> I assertContentEquals(T[] expected, boolean fail) throws ManualFailureException {
-            log(this);
-            if (isSuccess()) {
-                Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.CONTENT);
-                log(res);
-                if (fail && !res.passed())
-                    fail();
-            } else if (exception instanceof TimeoutException) {
-                log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-            } else if (threwException()) {
-                log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.CONTENT));
-                if (fail)
-                    fail();
-            }
-            return (I) Arrays.asList(expected);
-        }
-
-        public Object assertEqualsAny(Object... expected) throws ManualFailureException {
-            return assertEqualsAny(false, expected);
-        }
-
-        public Object assertEqualsAnyOrFail(Object... expected) throws ManualFailureException {
-            return assertEqualsAny(true, expected);
-        }
-
-		private Object assertEqualsAny(boolean fail, Object... expected) throws ManualFailureException {
-			log(this);
-			if (isSuccess()) {
-				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.ANY);
-				log(res);
-                if (fail && !res.passed())
-                    fail();
-			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-			} else if (threwException()) {
-				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.ANY));
-                if (fail)
-                    fail();
-			}
-			return expected[0];
-		}
-
-        @SafeVarargs
-        public final <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
-            return assertIsPermutation(false, expected);
-        }
-
-        @SafeVarargs
-        public final <T> T[] assertIsPermutationOrFail(T... expected) throws ManualFailureException {
-            return assertIsPermutation(true, expected);
-        }
-
-		@SafeVarargs
-        private final <T> T[] assertIsPermutation(boolean fail, T... expected) throws ManualFailureException {
-			log(this);
-			if (isSuccess()) {
-				Result res = new MethodInvocationResult(test, this, expected, result, MethodInvocationResult.EqualsType.PERMUTATION);
-				log(res);
-                if (fail && !res.passed())
-                    fail();
-			} else if (exception instanceof TimeoutException) {
-				log(new MethodTimeoutError(test, this));
-                if (fail)
-                    fail();
-			} else if (threwException()) {
-				log(new UnexpectedExceptionError(test, this, expected, exception, MethodInvocationResult.EqualsType.PERMUTATION));
-                if (fail)
-                    fail();
-			}
-			return expected;
-		}
-
-        private String toStringAsync(Object o) {
-            try {
-                return async(() -> Extensions.toStringOrDefault(o));
-            } catch (ExecutionException | InterruptedException | TimeoutException e) {
-                return Extensions.toStringDefault(o);
-            }
-        }
-
-		@Override
-		public String toString() {
-            StringBuilder s = new StringBuilder(method.getName() + "(");
-            if (arguments.length > 0) {
-                s.append(toStringAsync(arguments[0]).trim());
-                for (int i = 1; i < arguments.length; i++)
-                    s.append(", ").append(toStringAsync(arguments[i]).trim());
-            }
-            s.append(")");
-            if (caller != null)
-                return "(" + toStringAsync(caller).trim() + ")." + s;
-            return s.toString();
-        }
-
-        public String toStringWithoutCaller() {
-            StringBuilder s = new StringBuilder(method.getName() + "(");
-            if (arguments.length > 0) {
-                s.append(toStringAsync(arguments[0]).trim());
-                for (int i = 1; i < arguments.length; i++)
-                    s.append(", ").append(toStringAsync(arguments[i]).trim());
-            }
-            s.append(")");
-            return s.toString();
-        }
-
-        public String toStringWithHistoryOrDefault() {
-            String previous = "";
-            if (isStateful())
-                previous = " after <%s>".formatted(
-                    Extensions.joinToString("; ", getPreviousCalls(), Tester.MethodCall::toStringWithoutCaller)
-                );
-            return (isStateful() ? toStringWithoutCaller() : toString()) + previous;
-        }
-	}
-
-    public class AsymptoticRuntime {
-        private final ThrowingFunction<Long, Object> caller;
-        private final String description;
-        private final ThrowingBiConsumer<Object, Long> action;
-
-        private AsymptoticRuntime(String description, ThrowingFunction<Long, Object> caller, ThrowingBiConsumer<Object, Long> action) {
-            this.caller = caller;
-            this.description = description;
-            this.action = action;
-        }
-
-        private OrderOfGrowthEstimator.Fit fit(long initial, int steps, int repeats, boolean amortized) throws Exception {
-            OrderOfGrowthEstimator<Long, Exception> estimator = new OrderOfGrowthEstimator<>() {
-                private Object callingObject;
-
-                @Override
-                protected Long input(long n) throws Exception {
-                    callingObject = caller.apply(n);
-                    return n;
-                }
-
-                @Override
-                protected void action(Long input)  {
-                    try {
-                        action.accept(callingObject, input);
-                    } catch (Exception ignored) { }
-                }
-
-                @Override
-                protected long update(long n) {
-                    return (long) (1.5 * n);
-                }
-            };
-            OrderOfGrowthEstimator.Fit fit =
-                amortized ? estimator.fitAmortized(initial, steps, repeats)
-                          : estimator.fit(initial, steps, repeats);
-            System.gc();
-            return fit;
-        }
-
-        /**
-         * Analyses an action's asymptotic time complexity using regression analysis.
-         * @param complexity Expected asymptotic runtime order of growth.
-         * @param initial Initial input size N.
-         * @param steps Number of different input sizes to use.
-         * @param repeats How many times each input size will be repeated (higher = more accuracy for each N).
-         * @param confidence The expected growth order should be estimated with at least this much confidence.
-         */
-        public void assertTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
-            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
-            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.EQUALS, false));
-        }
-
-        public void assertTimeComplexityLessThanOrEqual(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
-            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
-            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.LESS_THAN_OR_EQUAL, false));
-        }
-
-        public void assertTimeComplexityLessThan(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
-            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
-            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.LESS_THAN, false));
-        }
-
-        public void assertAmortizedTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
-            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, true);
-            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit,  RuntimeComplexityEstimation.Comparison.EQUALS, true));
-        }
-    }
 
 	private final Map<Test, List<MethodCall>> invocations = new HashMap<>();
 	private final Map<Test, Set<Result>> results = new HashMap<>();
@@ -700,22 +189,6 @@ public class Tester extends Reflector {
         return compilationUnits.get(javaFile);
     }
 
-    /**
-     * Gets the JavaParser declaration of the primary class from a given file.
-     * @param javaFile The name of the .java file (including the extension).
-     * @return JavaParser class declaration for the file's primary type.
-     */
-    protected ClassOrInterfaceDeclaration getSyntaxTree(String javaFile) {
-        CompilationUnit unit = getCompilationUnit(javaFile);
-        if (unit == null)
-            return null;
-        for (TypeDeclaration<?> type : unit.getTypes()) {
-            if (type.isPublic() && type.isClassOrInterfaceDeclaration())
-                return type.asClassOrInterfaceDeclaration();
-        }
-        return null;
-    }
-
 	/**
 	 * Gets the compiled class from a .java file. Stores already-compiled files for re-utilisation to avoid compiling
 	 * and loading the same class more than once.
@@ -768,12 +241,6 @@ public class Tester extends Reflector {
                             compilationUnits.putIfAbsent(javaFile, unit);
                     }
                 } catch (ParseProblemException | IOException ignored) { }
-                /*
-                Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to a JavaParser exception: " + e.getMessage());
-                } catch (IOException e) {
-                    Console.warning("Failed to rename class of file " + source.getPath() + ", which does not match " + javaFile + " due to an IO exception: " + e.getMessage());
-                }
-                */
             }
 
             try {
@@ -829,9 +296,9 @@ public class Tester extends Reflector {
 
         String[] paramTypeNames = new String[parameterTypes.length];
         for (int i = 0; i < paramTypeNames.length; i++)
-            paramTypeNames[i] = parameterTypes[i].getName();
+            paramTypeNames[i] = parameterTypes[i].getSimpleName();
 
-		throw new NoSuchMethodException(returnType.getName() + " " + type.getName() + "." + name + Arrays.toString(paramTypeNames).replace('[', '(').replace(']', ')'));
+		throw new NoSuchMethodException(returnType.getSimpleName() + " " + type.getSimpleName() + "." + name + Arrays.toString(paramTypeNames).replace('[', '(').replace(']', ')'));
 	}
 
     /**
@@ -879,6 +346,22 @@ public class Tester extends Reflector {
      */
     protected AsymptoticRuntime asymptotic(String description, ThrowingFunction<Long, Object> caller, ThrowingBiConsumer<Object, Long> action) {
         return new AsymptoticRuntime(description, caller, action);
+    }
+
+    /**
+     * Prepares a class for property inspection.
+     * @param type The target type.
+     */
+    protected <T> ClassInspector<T> inspect(@NonNull Class<T> type) {
+        return new ClassInspector<>(type);
+    }
+
+    /**
+     * Prepares an object instance for inspection.
+     * @param object The target object.
+     */
+    protected <T> ObjectInspector<T> inspect(@NonNull T object) {
+        return new ObjectInspector<>(object);
     }
 
 	/**
@@ -941,7 +424,7 @@ public class Tester extends Reflector {
                             log(Result.failure(currentTest));
                     }
                     case NoSuchMethodException ex -> log(new MethodNotImplementedError(currentTest, ex));
-                    case NoSuchFieldException ex -> log(new AttributeNotImplementedError(currentTest, ex));
+                    case NoSuchFieldException ex -> log(new NoSuchFieldError(currentTest, ex));
                     case NoClassDefFoundError ex -> log(new ReferencedClassNotFoundError(currentTest, ex));
                     case null, default -> log(Result.unexpectedException(currentTest, target));
                 }
@@ -1043,8 +526,8 @@ public class Tester extends Reflector {
 		double grade = 0.0;
 		for (Test test : results.keySet()) {
 			Set<Result> res = results.get(test);
-			int correct = Extensions.countIf(res, Result::passed);
-			int total = res.size();
+			int correct = Extensions.countIf(res, t -> t.passed() && !t.isWarning());
+			int total = Extensions.countIf(res, t -> !t.isWarning());
 			if (total > 0) {
                 if (test == null)
                     Console.warning("Cannot compute grade for null test with results: " + Extensions.joinToString("; ", res));
@@ -1059,4 +542,809 @@ public class Tester extends Reflector {
 			return 0.0;
 		return grade;
 	}
+
+    public static class ManualFailureException extends Exception {
+        public ManualFailureException(String message) {
+            super(message);
+        }
+    }
+
+    public interface SideEffectChecker {
+        String message(boolean success);
+        boolean check() throws Exception;
+    }
+
+    protected abstract class DoublePredicate<T> {
+
+        protected abstract String onFailMessage();
+
+        public abstract boolean test(T expected, Object actual) throws ManualFailureException;
+
+        public boolean assertTrue(T expected, Object actual) throws ManualFailureException {
+            return assertTrue(expected, actual, false);
+        }
+
+        public boolean assertTrueOrFail(T expected, Object actual) throws ManualFailureException {
+            return assertTrue(expected, actual, true);
+        }
+
+        private boolean assertTrue(T expected, Object actual, boolean fail) throws ManualFailureException {
+            boolean result = this.test(expected, actual);
+            if (result)
+                ok();
+            else if (fail)
+                log(Result.failedRequirement(currentTest, onFailMessage()));
+            return result;
+        }
+    }
+
+    public class ObjectInstantiation {
+
+        private final Test test;
+        private final Constructor<?> constructor;
+        private final Object[] initArgs;
+
+        private ObjectInstantiation(Constructor<?> constructor, Object[] initArgs) {
+            this.test = currentTest;
+            this.constructor = constructor;
+
+            this.initArgs = new Object[initArgs.length];
+            for (int i = 0; i < initArgs.length; i++)
+                this.initArgs[i] = Extensions.clone(initArgs[i]);
+        }
+
+        public Object getOrThrow() throws ExecutionException, InterruptedException, TimeoutException {
+            return getInstance(constructor, initArgs);
+        }
+
+        public Object getOrFail() throws ManualFailureException {
+            try {
+                return getInstance(constructor, initArgs);
+            }
+            catch (TimeoutException e) {
+                log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, e));
+                fail();
+                return null;
+            }
+            catch (InterruptedException ignored) {  }
+            catch (Throwable e) {
+                Throwable error = e;
+                if (e instanceof ExecutionException) error = e.getCause();
+
+                log(new ObjectInstantiationError(test, constructor.getDeclaringClass(), initArgs, error));
+                fail();
+                return null;
+            }
+            return null;
+        }
+
+        public <T extends Throwable> void assertThrows(Class<T> exception) throws ManualFailureException {
+            Throwable thrown = null;
+            try {
+                getInstance(constructor, initArgs);
+            } catch (Throwable e) {
+                if (e instanceof ExecutionException) thrown = e.getCause();
+                else thrown = e;
+            }
+            if (thrown == null || !exception.isAssignableFrom(thrown.getClass()))
+                log(new ConstructorMissingExceptionError<>(test, this, exception, null));
+        }
+
+        @Override
+        public String toString() {
+            return "new " + constructor.getDeclaringClass().getSimpleName() + "(" + Extensions.joinToString(initArgs) + ")";
+        }
+    }
+
+    public class MethodCall {
+
+        private final Test test;
+        private final Method method;
+        private final Object caller;
+        private final Object[] arguments;
+        private Object result = NONE;
+        private Throwable exception = null;
+        private final boolean includeMethodCallHistory;
+
+        private final List<MethodCall> previous;
+        private final long timestamp;
+
+        private MethodCall(Method method, Object caller, Object[] arguments, boolean includeMethodCallHistory) {
+            this.test = currentTest;
+            this.method = method;
+
+            this.includeMethodCallHistory = includeMethodCallHistory;
+            this.timestamp = System.nanoTime();
+
+            if (includeMethodCallHistory)
+                this.previous = invocations.get(test).stream().filter(call -> call.wasBefore(this)).toList();
+            else
+                this.previous = Collections.emptyList();
+
+            this.caller = Extensions.clone(caller);
+            this.arguments = new Object[arguments.length];
+            for (int i = 0; i < arguments.length; i++)
+                this.arguments[i] = Extensions.clone(arguments[i]);
+
+            try {
+                this.result = Extensions.clone(getInvocationResult(method, caller, arguments));
+            } catch (ExecutionException ex) {
+                this.exception = ex.getCause();
+            } catch (Throwable ex) {
+                this.exception = ex;
+            }
+        }
+
+        private boolean wasBefore(MethodCall other) {
+            return this.timestamp < other.timestamp;
+        }
+
+        public boolean isSuccess() {
+            return !Objects.equals(result, NONE) && exception == null;
+        }
+
+        public boolean threwException() {
+            return exception != null;
+        }
+
+        public Optional<Throwable> getException() {
+            return Optional.of(exception);
+        }
+
+        public boolean isStateful() {
+            return includeMethodCallHistory && !previous.isEmpty();
+        }
+
+        public List<MethodCall> getPreviousCalls() {
+            return previous;
+        }
+
+        public Object getOrFail() throws ManualFailureException {
+            log(this);
+            if (!Objects.equals(result, NONE))
+                return result;
+            fail();
+            return null;
+        }
+
+        public Object getOrFail(String message) throws ManualFailureException {
+            log(this);
+            if (!Objects.equals(result, NONE))
+                return result;
+            fail(message);
+            return null;
+        }
+
+        public void assertTrue() throws ManualFailureException {
+            log(this);
+            if (Objects.equals(result, true)) ok();
+            else fail();
+        }
+
+        public void assertTrue(String message) throws ManualFailureException {
+            log(this);
+            if (Objects.equals(result, true)) ok();
+            else fail(message);
+        }
+
+        public void assertFalse() throws ManualFailureException {
+            log(this);
+            if (Objects.equals(result, false)) ok();
+            else fail();
+        }
+
+        public void assertFalse(String message) throws ManualFailureException {
+            log(this);
+            if (Objects.equals(result, false)) ok();
+            else fail(message);
+        }
+
+        public <T extends Throwable> void assertThrows(Class<T> type) throws ManualFailureException {
+            assertThrows(type, false);
+        }
+
+        public <T extends Throwable> void assertThrowsOrFail(Class<T> type) throws ManualFailureException {
+            assertThrows(type, true);
+        }
+
+        private <T extends Throwable> void assertThrows(Class<T> type, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                log(new MethodMissingExceptionError<>(test, this, type, result));
+                if (fail) fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail) fail();
+            } else if (threwException()) {
+                Result res = new MethodInvocationException<>(test, this, type, exception.getClass());
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            }
+        }
+
+        public Optional<Throwable> assertDoesNotThrow() throws ManualFailureException {
+            return assertDoesNotThrow(false);
+        }
+
+        public Optional<Throwable> assertDoesNotThrowOrFail() throws ManualFailureException {
+            return assertDoesNotThrow(true);
+        }
+
+        private Optional<Throwable> assertDoesNotThrow(boolean fail) throws ManualFailureException {
+            log(this);
+            if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail) fail();
+                return Optional.of(exception);
+            } else if (threwException()) {
+                log(new AssertDoesNotThrowFailedError(test, this, exception));
+                if (fail) fail();
+                return Optional.of(exception);
+            } else {
+                log(Result.success(test));
+                return Optional.empty();
+            }
+        }
+
+        public boolean assertProducesSideEffect(SideEffectChecker checker) throws ManualFailureException {
+            return assertProducesSideEffect(checker, false);
+        }
+
+        public boolean assertProducesSideEffectOrFail(SideEffectChecker checker) throws ManualFailureException {
+            return assertProducesSideEffect(checker, true);
+        }
+
+        private boolean assertProducesSideEffect(SideEffectChecker checker, boolean fail) throws ManualFailureException {
+            log(this);
+            Result res = new MethodInvocationSideEffect(test, this, checker);
+            log(res);
+            if (fail && !res.passed())
+                fail();
+            return res.passed();
+        }
+
+        public Object assertNotNull() throws ManualFailureException {
+            return assertNotNull(false);
+        }
+
+        public Object assertNotNullOrFail() throws ManualFailureException {
+            return assertNotNull(true);
+        }
+
+        private Object assertNotNull(boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, null, result, AssertEqualsType.NOTNULL);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, null, exception, AssertEqualsType.NOTNULL));
+                if (fail)
+                    fail();
+            }
+            return result;
+        }
+
+        public <T> T assertIsInstance(Class<T> type) throws ManualFailureException {
+            return assertIsInstance(type, false);
+        }
+
+        public <T> T assertIsInstanceOrFail(Class<T> type) throws ManualFailureException {
+            return assertIsInstance(type, true);
+        }
+
+        private <T> T assertIsInstance(Class<T> type, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, type, result, AssertEqualsType.TYPEOF);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, type, exception, AssertEqualsType.TYPEOF));
+                if (fail)
+                    fail();
+            }
+            return type.cast(result);
+        }
+
+        public Object assertEquals(Object expected) throws ManualFailureException {
+            return assertEquals(expected, false);
+        }
+
+        public Object assertEqualsOrFail(Object expected) throws ManualFailureException {
+            return assertEquals(expected, true);
+        }
+
+        private Object assertEquals(Object expected, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, expected, result, AssertEqualsType.EXACT);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, expected, exception, AssertEqualsType.EXACT));
+                if (fail)
+                    fail();
+            }
+            return expected;
+        }
+
+        public <T, I extends Iterable<T>> I assertContentEquals(T[] expected) throws ManualFailureException {
+            return assertContentEquals(expected, false);
+        }
+
+        public <T, I extends Iterable<T>> I assertContentEqualsOrFail(T[] expected) throws ManualFailureException {
+            return assertContentEquals(expected, true);
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T, I extends Iterable<T>> I assertContentEquals(T[] expected, boolean fail) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, expected, result, AssertEqualsType.CONTENT);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, expected, exception, AssertEqualsType.CONTENT));
+                if (fail)
+                    fail();
+            }
+            return (I) Arrays.asList(expected);
+        }
+
+        public Object assertEqualsAny(Object... expected) throws ManualFailureException {
+            return assertEqualsAny(false, expected);
+        }
+
+        public Object assertEqualsAnyOrFail(Object... expected) throws ManualFailureException {
+            return assertEqualsAny(true, expected);
+        }
+
+        private Object assertEqualsAny(boolean fail, Object... expected) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, expected, result, AssertEqualsType.ANY);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, expected, exception, AssertEqualsType.ANY));
+                if (fail)
+                    fail();
+            }
+            return expected[0];
+        }
+
+        @SafeVarargs
+        public final <T> T[] assertIsPermutation(T... expected) throws ManualFailureException {
+            return assertIsPermutation(false, expected);
+        }
+
+        @SafeVarargs
+        public final <T> T[] assertIsPermutationOrFail(T... expected) throws ManualFailureException {
+            return assertIsPermutation(true, expected);
+        }
+
+        @SafeVarargs
+        private final <T> T[] assertIsPermutation(boolean fail, T... expected) throws ManualFailureException {
+            log(this);
+            if (isSuccess()) {
+                Result res = new MethodInvocationResult(test, this, expected, result, AssertEqualsType.PERMUTATION);
+                log(res);
+                if (fail && !res.passed())
+                    fail();
+            } else if (exception instanceof TimeoutException) {
+                log(new MethodTimeoutError(test, this));
+                if (fail)
+                    fail();
+            } else if (threwException()) {
+                log(new UnexpectedMethodCallExceptionError(test, this, expected, exception, AssertEqualsType.PERMUTATION));
+                if (fail)
+                    fail();
+            }
+            return expected;
+        }
+
+        private String toStringAsync(Object o) {
+            try {
+                return async(() -> Extensions.toStringOrDefault(o));
+            } catch (ExecutionException | InterruptedException | TimeoutException e) {
+                return Objects.toIdentityString(o);
+            }
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder s = new StringBuilder(method.getName() + "(");
+            if (arguments.length > 0) {
+                s.append(toStringAsync(arguments[0]).trim());
+                for (int i = 1; i < arguments.length; i++)
+                    s.append(", ").append(toStringAsync(arguments[i]).trim());
+            }
+            s.append(")");
+            if (caller != null)
+                return "(" + toStringAsync(caller).trim() + ")." + s;
+            return s.toString();
+        }
+
+        public String toStringWithoutCaller() {
+            StringBuilder s = new StringBuilder(method.getName() + "(");
+            if (arguments.length > 0) {
+                s.append(toStringAsync(arguments[0]).trim());
+                for (int i = 1; i < arguments.length; i++)
+                    s.append(", ").append(toStringAsync(arguments[i]).trim());
+            }
+            s.append(")");
+            return s.toString();
+        }
+
+        public String toStringWithHistoryOrDefault() {
+            String previous = "";
+            if (isStateful())
+                previous = " after <%s>".formatted(
+                        Extensions.joinToString("; ", getPreviousCalls(), Tester.MethodCall::toStringWithoutCaller)
+                );
+            return (isStateful() ? toStringWithoutCaller() : toString()) + previous;
+        }
+    }
+
+    public class AsymptoticRuntime {
+        private final ThrowingFunction<Long, Object> caller;
+        private final String description;
+        private final ThrowingBiConsumer<Object, Long> action;
+
+        private AsymptoticRuntime(String description, ThrowingFunction<Long, Object> caller, ThrowingBiConsumer<Object, Long> action) {
+            this.caller = caller;
+            this.description = description;
+            this.action = action;
+        }
+
+        private OrderOfGrowthEstimator.Fit fit(long initial, int steps, int repeats, boolean amortized) throws Exception {
+            OrderOfGrowthEstimator<Long, Exception> estimator = new OrderOfGrowthEstimator<>() {
+                private Object callingObject;
+
+                @Override
+                protected Long input(long n) throws Exception {
+                    callingObject = caller.apply(n);
+                    return n;
+                }
+
+                @Override
+                protected void action(Long input)  {
+                    try {
+                        action.accept(callingObject, input);
+                    } catch (Exception ignored) { }
+                }
+
+                @Override
+                protected long update(long n) {
+                    return (long) (1.5 * n);
+                }
+            };
+            OrderOfGrowthEstimator.Fit fit =
+                    amortized ? estimator.fitAmortized(initial, steps, repeats)
+                            : estimator.fit(initial, steps, repeats);
+            System.gc();
+            return fit;
+        }
+
+        /**
+         * Analyses an action's asymptotic time complexity using regression analysis.
+         * @param complexity Expected asymptotic runtime order of growth.
+         * @param initial Initial input size N.
+         * @param steps Number of different input sizes to use.
+         * @param repeats How many times each input size will be repeated (higher = more accuracy for each N).
+         * @param confidence The expected growth order should be estimated with at least this much confidence.
+         */
+        public void assertTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
+            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
+            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.EQUALS, false));
+        }
+
+        public void assertTimeComplexityLessThanOrEqual(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
+            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
+            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.LESS_THAN_OR_EQUAL, false));
+        }
+
+        public void assertTimeComplexityLessThan(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
+            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, false);
+            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit, RuntimeComplexityEstimation.Comparison.LESS_THAN, false));
+        }
+
+        public void assertAmortizedTimeComplexity(OrderOfGrowth complexity, long initial, int steps, int repeats, double confidence) throws Exception {
+            OrderOfGrowthEstimator.Fit fit = fit(initial, steps, repeats, true);
+            log(new RuntimeComplexityEstimation(currentTest, description, complexity, confidence, fit,  RuntimeComplexityEstimation.Comparison.EQUALS, true));
+        }
+    }
+
+    public class ClassInspector<T> {
+        private final Class<T> type;
+
+        public ClassInspector(Class<T> type) {
+            if (type == null)
+                throw new IllegalArgumentException("");
+            this.type = type;
+        }
+
+        public Class<T> target() {
+            return type;
+        }
+
+        public FieldAccess field(Class<?> fieldType, String name) {
+            return new FieldAccess(fieldType, name);
+        }
+
+        public Class<?> assertHasNestedClass(String name) throws ManualFailureException {
+            return assertHasNestedClass(name, false);
+        }
+
+        public Class<?> assertHasNestedClassOrFail(String name) throws ManualFailureException {
+            return assertHasNestedClass(name, true);
+        }
+
+        private Class<?> assertHasNestedClass(String name, boolean fail) throws ManualFailureException {
+            Class<?> nested = null;
+            ClassNotFoundException exception = null;
+
+            try {
+                nested = Tester.this.getNestedClass(type, name);
+            } catch (ClassNotFoundException e) {
+                exception = e;
+            }
+
+            GetNestedClassResult result = new GetNestedClassResult(currentTest, type, name, nested, exception);
+            log(result);
+            if (fail && !result.passed())
+                fail();
+
+            return nested;
+        }
+
+        private SymbolicFunction assertMemoryEquals(SymbolicFunction expected, boolean fail) throws ManualFailureException {
+            throw new UnsupportedOperationException("Not yet implemented!"); // TODO
+        }
+
+        public class FieldAccess {
+            private final Class<?> fieldType;
+            private final String fieldName;
+
+            private final Field field;
+            private final NoSuchFieldException exception;
+
+            private FieldAccess(Class<?> fieldType, String fieldName) {
+                if (fieldType == null || fieldName == null)
+                    throw new IllegalArgumentException("");
+
+                this.fieldType = fieldType;
+                this.fieldName = fieldName;
+
+                Field target = null;
+                NoSuchFieldException error = null;
+                try {
+                    target = Tester.this.getField(type, fieldType, fieldName);
+                } catch (NoSuchFieldException e) {
+                    error = e;
+                }
+
+                field = target;
+                exception = error;
+            }
+
+            private boolean fieldExists() {
+                return field != null && exception == null;
+            }
+
+            private void noSuchField(boolean fail) throws ManualFailureException {
+                String description = "%s %s.%s".formatted(fieldType.getSimpleName(), type.getSimpleName(), fieldName);
+                NoSuchFieldError result = new NoSuchFieldError(currentTest, new NoSuchFieldException(description));
+                log(result);
+                if (fail) fail();
+            }
+
+            public boolean assertExists() throws ManualFailureException {
+                return assertExists(false);
+            }
+
+            public boolean assertExistsOrFail() throws ManualFailureException {
+                return assertExists(true);
+            }
+
+            private boolean assertExists(boolean fail) throws ManualFailureException {
+                if (fieldExists()) ok();
+                else noSuchField(fail);
+                return fieldExists();
+            }
+
+            public <R> R assertStaticEquals(R expected) throws ManualFailureException {
+                return assertStaticEquals(expected, false);
+            }
+
+            public <R> R assertStaticEqualsOrFail(R expected) throws ManualFailureException {
+                return assertStaticEquals(expected, true);
+            }
+
+            private <R> R assertStaticEquals(R expected, boolean fail) throws ManualFailureException {
+                if (fieldExists()) {
+                    ClassGetStaticResult<R> result = new ClassGetStaticResult<>(currentTest, type, field, expected, AssertEqualsType.EXACT);
+                    log(result);
+                    if (fail && !result.passed())
+                        fail();
+                } else {
+                    noSuchField(fail);
+                }
+                return expected;
+            }
+        }
+
+        public class MethodAccess {
+            private final String methodName;
+            private final Class<?> methodReturnType;
+            private final Class<?>[] methodParameterTypes;
+
+            private final Method method;
+            private final NoSuchMethodException exception;
+
+            private MethodAccess(String methodName, Class<?> methodReturnType, Class<?>[] methodParameterTypes) {
+                this.methodName = methodName;
+                this.methodReturnType = methodReturnType;
+                this.methodParameterTypes = methodParameterTypes;
+
+                Method target = null;
+                NoSuchMethodException error = null;
+                try {
+                    target = findMethod(type, methodReturnType, methodName, methodParameterTypes);
+                } catch (NoSuchMethodException e) {
+                    error = e;
+                }
+                this.method = target;
+                this.exception = error;
+            }
+
+            private void noSuchMethod(boolean fail) throws ManualFailureException {
+                MethodNotImplementedError result = new MethodNotImplementedError(currentTest, exception);
+                log(result);
+                if (fail) fail();
+            }
+
+            private boolean methodExists() {
+                return method != null && exception == null;
+            }
+
+            public boolean assertExists() throws ManualFailureException {
+                return assertExists(false);
+            }
+
+            public boolean assertExistsOrFail() throws ManualFailureException {
+                return assertExists(true);
+            }
+
+            private boolean assertExists(boolean fail) throws ManualFailureException {
+                if (methodExists()) ok();
+                else noSuchMethod(fail);
+                return methodExists();
+            }
+
+            public boolean assertHasModifier(int modifier) throws ManualFailureException {
+                return assertHasModifier(modifier, false);
+            }
+
+            public boolean assertHasModifierOrFail(int modifier) throws ManualFailureException {
+                return assertHasModifier(modifier, true);
+            }
+
+            private boolean assertHasModifier(int modifier, boolean fail) throws ManualFailureException {
+                if (methodExists()) {
+                    MethodCheckModifierResult result = new MethodCheckModifierResult(currentTest, method, modifier);
+                    log(result);
+                    if (fail && !result.passed())
+                        fail();
+                    return result.passed();
+                } else noSuchMethod(fail);
+                return false;
+            }
+        }
+    }
+
+    public class ObjectInspector<T> {
+        private final T object;
+
+        public ObjectInspector(T object) {
+            this.object = object;
+        }
+
+        public T target() {
+            return object;
+        }
+
+        public <R> PropertyAccess<R> property(Class<R> propertyType, String name) {
+            return new PropertyAccess<>(propertyType, name);
+        }
+
+        public class PropertyAccess<R> {
+
+            private final Class<R> fieldType;
+            private final String fieldName;
+
+            private final R value;
+            private final Exception exception;
+
+            public PropertyAccess(Class<R> fieldType, String fieldName) {
+                this.fieldType = fieldType;
+                this.fieldName = fieldName;
+
+                R result = null;
+                Exception error = null;
+                try {
+                    result = Tester.this.getProperty(object, fieldType, fieldName);
+                } catch (Exception e) {
+                    error = e;
+                }
+
+                value = result;
+                exception = error;
+            }
+
+            private boolean isSuccess() {
+                return exception == null;
+            }
+
+            public R get() {
+                return value;
+            }
+
+            public R getOrFail() throws ManualFailureException {
+                if (isSuccess())
+                    return value;
+                fail();
+                return null;
+            }
+
+            public R assertEquals(R expected) throws ManualFailureException {
+                return assertEquals(expected, false);
+            }
+
+            public R assertEqualsOrFail(R expected) throws ManualFailureException {
+                return assertEquals(expected, true);
+            }
+
+            public R assertEquals(R expected, boolean fail) throws ManualFailureException {
+                if (isSuccess()) {
+                    Result res = new ObjectGetPropertyResult<>(currentTest, object, fieldType, fieldName, expected, value, AssertEqualsType.EXACT);
+                    log(res);
+                    if (fail && !res.passed())
+                        fail();
+                } else {
+                    log(new UnexpectedObjectPropertyExceptionError<>(currentTest, object, fieldType, fieldName, expected, exception, AssertEqualsType.EXACT));
+                    if (fail)
+                        fail();
+                }
+                return expected;
+            }
+        }
+    }
 }

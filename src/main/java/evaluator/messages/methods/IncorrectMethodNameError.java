@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.methods;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 import extensions.Extensions;
 
 import java.lang.reflect.Method;
@@ -42,10 +43,10 @@ public class IncorrectMethodNameError extends Result {
     public String getMessage() {
         String[] expectedParamTypeNames = new String[found.getParameterCount()];
         for (int i = 0; i < expectedParamTypeNames.length; i++)
-            expectedParamTypeNames[i] = found.getParameterTypes()[i].getName();
+            expectedParamTypeNames[i] = found.getParameterTypes()[i].getSimpleName();
         String expectedSignature = "%s %s.%s(%s)".formatted(
-            found.getReturnType().getName(),
-            type.getName(),
+            found.getReturnType().getSimpleName(),
+            type.getSimpleName(),
             expected,
             Extensions.joinToString(expectedParamTypeNames)
         );

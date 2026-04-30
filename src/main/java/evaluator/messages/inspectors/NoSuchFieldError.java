@@ -1,12 +1,13 @@
-package evaluator.messages;
+package evaluator.messages.inspectors;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
-public class AttributeNotImplementedError extends Result {
+public class NoSuchFieldError extends Result {
 
     private final NoSuchFieldException cause;
 
-    public AttributeNotImplementedError(Test test, NoSuchFieldException cause) {
+    public NoSuchFieldError(Test test, NoSuchFieldException cause) {
         super(test);
         this.cause = cause;
     }
@@ -27,6 +28,6 @@ public class AttributeNotImplementedError extends Result {
 
     @Override
     public String getMessage() {
-        return "Attribute not implemented: " + cause.getMessage() + ". Did you use the correct name?";
+        return "Field not implemented: " + cause.getMessage() + ". Did you use the correct name and type?";
     }
 }

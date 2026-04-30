@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.methods;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
 public class MethodNotImplementedError extends Result {
 

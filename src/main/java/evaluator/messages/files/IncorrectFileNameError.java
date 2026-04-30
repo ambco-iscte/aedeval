@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.files;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
 public class IncorrectFileNameError extends Result {
 

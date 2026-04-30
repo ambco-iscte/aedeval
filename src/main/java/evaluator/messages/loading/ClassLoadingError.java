@@ -1,6 +1,7 @@
-package evaluator.messages;
+package evaluator.messages.loading;
 
 import evaluator.annotations.Test;
+import evaluator.messages.Result;
 
 import java.io.File;
 

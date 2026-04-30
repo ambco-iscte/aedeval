@@ -2,6 +2,7 @@ package extensions;
 
 import java.io.File;
 import java.lang.reflect.*;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.function.BiPredicate;
@@ -9,6 +10,28 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 public class Extensions {
+
+    @SuppressWarnings("unchecked")
+    public static <T> T[] sample(List<T> elements, int count) {
+        if (count <= 0 || elements.isEmpty())
+            return (T[]) new Object[0];
+
+        if (count >= elements.size())
+            return (T[]) elements.toArray();
+
+        T[] reservoir = (T[]) new Object[count];
+        for (int i = 0; i < count; i++)
+            reservoir[i] = elements.get(i);
+
+        SecureRandom random = new SecureRandom();
+        for (int i = count; i < elements.size(); i++) {
+            int index = random.nextInt(0, i + 1);
+            if (index <= count)
+                reservoir[index] = elements.get(i);
+        }
+
+        return reservoir;
+    }
 
     public static <T> boolean any(T[] elements, Predicate<T> predicate) {
         for (T element : elements) {
@@ -400,12 +423,6 @@ public class Extensions {
                 return o.getClass().getSimpleName() + "@" + System.identityHashCode(o);
             }
         }
-    }
-
-    public static String toStringDefault(Object o) {
-        if (o == null)
-            return "null";
-        return o.getClass().getSimpleName() + "@" + System.identityHashCode(o);
     }
 
     public static String stringify(Object object) {
